@@ -7,6 +7,9 @@ import csv
 from typing import List, Dict, Any
 import os
 
+# Constants
+NO_HATE_SPEECH_CATEGORY = 0
+
 
 def load_json_dataset(filepath: str) -> List[Dict[str, Any]]:
     """
@@ -49,12 +52,25 @@ def load_csv_dataset(filepath: str) -> List[Dict[str, Any]]:
     data = []
     with open(filepath, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
-        for row in reader:
-            data.append({
-                'text': row['text'],
-                'has_hate_speech': row['has_hate_speech'].lower() in ['true', '1', 'yes'],
-                'category': int(row['category'])
-            })
+        for i, row in enumerate(reader, start=1):
+            try:
+                # Handle various boolean representations
+                has_hate_str = row['has_hate_speech'].strip().lower()
+                has_hate_speech = has_hate_str in ['true', '1', 'yes', 't', 'y']
+                
+                # Handle category with error checking
+                try:
+                    category = int(row['category'])
+                except ValueError:
+                    raise ValueError(f"Row {i}: Invalid category value '{row['category']}'. Must be an integer 0-7.")
+                
+                data.append({
+                    'text': row['text'],
+                    'has_hate_speech': has_hate_speech,
+                    'category': category
+                })
+            except KeyError as e:
+                raise KeyError(f"Row {i}: Missing required column {e}")
     return data
 
 
@@ -145,12 +161,14 @@ def validate_dataset(data: List[Dict[str, Any]]) -> Dict[str, Any]:
         
         # Check logical consistency
         if 'has_hate_speech' in sample and 'category' in sample:
-            if not sample['has_hate_speech'] and sample['category'] != 0:
-                warnings.append(f"Sample {i}: has_hate_speech=False but category={sample['category']} (should be 0)")
+            if not sample['has_hate_speech'] and sample['category'] != NO_HATE_SPEECH_CATEGORY:
+                warnings.append(f"Sample {i}: has_hate_speech=False but category={sample['category']} (should be {NO_HATE_SPEECH_CATEGORY})")
     
     # Calculate statistics
+    # Calculate statistics
+    total_samples = len(data)
     stats = {
-        "total_samples": len(data),
+        "total_samples": total_samples,
         "hate_speech_count": sum(1 for s in data if s.get('has_hate_speech', False)),
         "no_hate_count": sum(1 for s in data if not s.get('has_hate_speech', False)),
         "category_distribution": {}
@@ -206,12 +224,17 @@ def print_dataset_info(filepath: str):
     stats = validation["statistics"]
     print(f"\nStatistics:")
     print(f"  Total samples: {stats['total_samples']}")
-    print(f"  Hate speech: {stats['hate_speech_count']} ({stats['hate_speech_count']/stats['total_samples']*100:.1f}%)")
-    print(f"  No hate speech: {stats['no_hate_count']} ({stats['no_hate_count']/stats['total_samples']*100:.1f}%)")
     
-    print(f"\n  Category distribution:")
-    for cat_id, count in sorted(validation["statistics"]["category_distribution"].items()):
-        print(f"    Category {cat_id}: {count} ({count/stats['total_samples']*100:.1f}%)")
+    # Guard against division by zero
+    if stats['total_samples'] > 0:
+        print(f"  Hate speech: {stats['hate_speech_count']} ({stats['hate_speech_count']/stats['total_samples']*100:.1f}%)")
+        print(f"  No hate speech: {stats['no_hate_count']} ({stats['no_hate_count']/stats['total_samples']*100:.1f}%)")
+        
+        print(f"\n  Category distribution:")
+        for cat_id, count in sorted(validation["statistics"]["category_distribution"].items()):
+            print(f"    Category {cat_id}: {count} ({count/stats['total_samples']*100:.1f}%)")
+    else:
+        print("  (No samples to display statistics)")
 
 
 def merge_datasets(filepaths: List[str], output_path: str):
