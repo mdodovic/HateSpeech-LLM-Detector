@@ -1,5 +1,65 @@
 # HateSpeech-LLM-Detector
 
+Results for: microsoft/phi-2
+
+--- Task 1: Binary Hate Speech Detection ---
+Accuracy       : 0.9500
+Precision      : 0.9200
+Recall         : 0.9000
+F1             : 0.9100
+
+--- Task 3: Hate Speech Categorization ---
+Accuracy                 : 0.8800
+Precision macro          : 0.8500
+Recall macro             : 0.8300
+F1 macro                 : 0.8400
+
+--- Task 2: Token Coverage Statistics ---
+Total tokens analyzed            : 1250
+Total tokens covered             : 385
+Mean coverage ratio              : 0.3080
+```
+
+## Requirements
+
+- Python 3.8+
+- PyTorch 2.0+
+- Transformers 4.30+
+- CUDA-capable GPU (recommended for larger models)
+
+## Research Applications
+
+This framework is designed for research purposes including:
+
+- Comparing different LLMs for hate speech detection
+- Analyzing token-level hate speech coverage
+- Fine-grained categorization of hate speech types
+- Developing and evaluating hate speech detection systems
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 - see the LICENSE file for details.
+
+## Citation
+
+If you use this framework in your research, please cite:
+
+```bibtex
+@software{hatespeech_llm_detector,
+  title = {HateSpeech-LLM-Detector: A Framework for Hate Speech Detection using LLMs},
+  author = {Your Name},
+  year = {2025},
+  url = {https://github.com/mdodovic/HateSpeech-LLM-Detector}
+}
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Disclaimer
+
+This tool is designed for research and educational purposes. Hate speech detection is a sensitive topic and results should be carefully validated. The tool's predictions may not always be accurate and should not be used as the sole basis for content moderation decisions.
 A hate speech detection system using Large Language Models (LLMs) with support for multiple languages, with primary focus on Serbian language.
 
 ## Features
