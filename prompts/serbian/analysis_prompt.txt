@@ -1,0 +1,12 @@
+Napravi detaljnu analizu sledećeg teksta u kontekstu govora mržnje:
+
+Tekst: {text}
+
+Tvoja analiza treba da uključi:
+1. Da li tekst sadrži govor mržnje (da/ne)
+2. Koji specifični elementi ukazuju na govor mržnje
+3. Ciljne grupe (ako postoje)
+4. Nivo ozbiljnosti (nizak, srednji, visok)
+5. Preporuke za moderaciju
+
+Odgovori detaljno na srpskom jeziku.
