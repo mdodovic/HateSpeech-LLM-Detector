@@ -1,0 +1,17 @@
+Analiziraj sledeći tekst i odredi da li sadrži govor mržnje:
+
+Tekst: {text}
+
+Odgovori u JSON formatu sa sledećim poljima:
+- "is_hate_speech": true ili false
+- "confidence": broj između 0 i 1 koji predstavlja nivo pouzdanosti
+- "categories": lista kategorija govora mržnje ako je primenljivo (npr. "rasizam", "seksizam", "ksenofobija")
+- "explanation": kratko objašnjenje tvoje odluke na srpskom jeziku
+
+Primer odgovora:
+{{
+  "is_hate_speech": false,
+  "confidence": 0.95,
+  "categories": [],
+  "explanation": "Tekst ne sadrži govor mržnje."
+}}
