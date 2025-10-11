@@ -1,0 +1,17 @@
+Analyze the following text and determine if it contains hate speech:
+
+Text: {text}
+
+Respond in JSON format with the following fields:
+- "is_hate_speech": true or false
+- "confidence": a number between 0 and 1 representing the confidence level
+- "categories": list of hate speech categories if applicable (e.g., "racism", "sexism", "xenophobia")
+- "explanation": a brief explanation of your decision
+
+Example response:
+{{
+  "is_hate_speech": false,
+  "confidence": 0.95,
+  "categories": [],
+  "explanation": "The text does not contain hate speech."
+}}
