@@ -1,0 +1,157 @@
+============================================================
+Example Output for HateSpeech-LLM-Detector
+============================================================
+
+This file shows what output you can expect when running the framework.
+
+============================================================
+Processing with microsoft/phi-2
+============================================================
+
+Loading model: microsoft/phi-2
+Model loaded successfully on cuda
+
+Processing 10 samples...
+[################################] 10/10 (100%)
+
+============================================================
+Results for: microsoft/phi-2
+============================================================
+
+--- Task 1: Binary Hate Speech Detection ---
+Accuracy       : 0.9000
+Precision      : 0.9000
+Recall         : 0.9000
+F1             : 0.9000
+
+--- Task 3: Hate Speech Categorization ---
+Accuracy                 : 0.8500
+Precision macro          : 0.8200
+Recall macro             : 0.8100
+F1 macro                 : 0.8150
+Precision weighted       : 0.8400
+Recall weighted          : 0.8500
+F1 weighted              : 0.8450
+
+--- Task 2: Token Coverage Statistics ---
+Total tokens analyzed            : 1250
+Total tokens covered             : 385
+Mean coverage ratio              : 0.3080
+Median coverage ratio            : 0.2950
+Std coverage ratio               : 0.1520
+Min coverage ratio               : 0.0000
+Max coverage ratio               : 0.6200
+
+============================================================
+
+Files saved:
+  - results/microsoft_phi-2_detailed_results.csv
+  - results/microsoft_phi-2_metrics.json
+  - results/microsoft_phi-2_classification_report.txt
+
+============================================================
+
+
+============================================================
+Classification Report (from *_classification_report.txt)
+============================================================
+
+                                    precision    recall  f1-score   support
+
+                     No hate speech       0.88      0.89      0.88         9
+Race/Ethnicity-based hate speech       0.85      0.87      0.86         3
+       Religion-based hate speech       0.90      0.88      0.89         2
+         Gender-based hate speech       0.83      0.85      0.84         3
+Sexual orientation-based hate sp       0.87      0.85      0.86         2
+     Disability-based hate speech       0.91      0.90      0.90         1
+    Nationality-based hate speech       0.86      0.88      0.87         2
+   Other forms of hate speech          0.78      0.80      0.79         1
+
+                        accuracy                           0.85        23
+                       macro avg       0.86      0.86      0.86        23
+                    weighted avg       0.85      0.85      0.85        23
+
+
+============================================================
+Sample Detailed Results (from *_detailed_results.csv)
+============================================================
+
+text,true_has_hate,pred_has_hate,true_category,pred_category,hate_sentences,tokens_covered,total_tokens,binary_explanation,category_explanation
+
+"I love spending time with my friends from different cultures.",False,False,0,0,[],0,15,"The text expresses positive sentiment...","Category 0 - This text contains no hate speech..."
+
+"Those people from that country are all criminals.",True,True,6,6,"['Those people from that country are all criminals.']",12,12,"YES - This text contains hate speech targeting nationality...","Category 6 - Nationality-based hate speech..."
+
+"Women don't belong in leadership positions.",True,True,3,3,"['Women don't belong in leadership positions.']",9,10,"YES - This text contains gender-based stereotypes...","Category 3 - Gender-based hate speech..."
+
+
+============================================================
+Metrics JSON (from *_metrics.json)
+============================================================
+
+{
+  "model": "microsoft/phi-2",
+  "binary_metrics": {
+    "accuracy": 0.9000,
+    "precision": 0.9000,
+    "recall": 0.9000,
+    "f1": 0.9000
+  },
+  "category_metrics": {
+    "accuracy": 0.8500,
+    "precision_macro": 0.8200,
+    "recall_macro": 0.8100,
+    "f1_macro": 0.8150,
+    "precision_weighted": 0.8400,
+    "recall_weighted": 0.8500,
+    "f1_weighted": 0.8450
+  },
+  "token_metrics": {
+    "total_tokens_analyzed": 1250,
+    "total_tokens_covered": 385,
+    "mean_coverage_ratio": 0.3080,
+    "median_coverage_ratio": 0.2950,
+    "std_coverage_ratio": 0.1520,
+    "min_coverage_ratio": 0.0000,
+    "max_coverage_ratio": 0.6200
+  }
+}
+
+
+============================================================
+Model Comparison (when running multiple models)
+============================================================
+
+Model                                  Binary F1  Binary Accuracy  Category F1 (Macro)  Category Accuracy  Mean Token Coverage
+microsoft/phi-2                          0.9000          0.9000              0.8150             0.8500               0.3080
+mistralai/Mistral-7B-Instruct-v0.1      0.9200          0.9200              0.8400             0.8700               0.3250
+Qwen/Qwen2-7B-Instruct                  0.9100          0.9100              0.8300             0.8600               0.3150
+
+
+============================================================
+Interpretation Guide
+============================================================
+
+BINARY METRICS (Task 1):
+  - Accuracy > 0.90: Excellent overall performance
+  - F1 > 0.85: Good balance of precision and recall
+  - High Precision, Low Recall: Conservative (misses hate speech)
+  - Low Precision, High Recall: Aggressive (false positives)
+
+CATEGORY METRICS (Task 3):
+  - Accuracy > 0.80: Good multi-class performance
+  - Macro F1: Equal weight to all categories
+  - Weighted F1: Weighted by category frequency
+  - Check confusion matrix for category-specific issues
+
+TOKEN COVERAGE (Task 2):
+  - Mean Coverage 0.2-0.4: Typical for hate speech detection
+  - High coverage (>0.5): Liberal extraction
+  - Low coverage (<0.1): Conservative extraction
+  - Compare with binary detection for consistency
+
+BEST PRACTICES:
+  1. Use multiple models for comparison
+  2. Validate predictions on a held-out test set
+  3. Manually review misclassifications
+  4. Consider domain-specific fine-tuning for your use case
