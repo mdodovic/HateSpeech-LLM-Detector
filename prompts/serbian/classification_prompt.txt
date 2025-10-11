@@ -5,7 +5,7 @@ Tekst: {text}
 Odgovori u JSON formatu sa sledećim poljima:
 - "is_hate_speech": true ili false
 - "confidence": broj između 0 i 1 koji predstavlja nivo pouzdanosti
-- "categories": lista kategorija govora mržnje ako je primenljivo (npr. "rasizam", "seksizam", "ksenofobija")
+- "categories": lista kategorija govora mržnje ako je primenjivo (npr. "rasizam", "seksizam", "ksenofobija")
 - "explanation": kratko objašnjenje tvoje odluke na srpskom jeziku
 
 Primer odgovora:
