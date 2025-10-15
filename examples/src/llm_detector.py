@@ -1,0 +1,157 @@
+"""
+Base LLM Detector for Hate Speech Detection (Ollama backend)
+"""
+
+import re
+import requests
+from typing import List, Dict, Tuple
+
+
+class LLMDetector:
+    """Base class for hate speech detection using local Ollama service"""
+
+    def __init__(self, model_name: str, base_url: str = "http://localhost:11434", default_temperature: float = 0.1):
+        """
+        Initialize the LLM detector (Ollama)
+
+        Args:
+            model_name: Ollama model tag (e.g., "llama3.2:3b", "phi3:mini", "mistral:7b")
+            base_url: Base URL of the local Ollama server
+            default_temperature: Default sampling temperature
+        """
+        self.model_name = model_name
+        self.base_url = base_url.rstrip("/")
+        self.default_temperature = default_temperature
+        self._session = requests.Session()
+
+    # --- Internal helpers ---
+    def _clean_content(self, text: str) -> str:
+        # Remove possible reasoning tags and trim
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+        return text.strip()
+
+    def _token_count(self, text: str) -> int:
+        # Lightweight approximation of token count
+        # Splits on words and punctuation to better approximate LLM tokens
+        return len(re.findall(r"\w+|\S", text))
+
+    def _chat(self, messages: List[Dict[str, str]], num_predict: int, temperature: float) -> str:
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": num_predict,
+            },
+        }
+        resp = self._session.post(f"{self.base_url}/api/chat", json=payload, timeout=180)
+        resp.raise_for_status()
+        data = resp.json()
+        # Ollama returns either {message: {role, content}} or {response: "..."} depending on API
+        content = (
+            (data.get("message") or {}).get("content")
+            or data.get("response")
+            or ""
+        )
+        return self._clean_content(content)
+
+    # --- Public API (compatible with previous HF-based version) ---
+    def generate_response(self, prompt: str, max_new_tokens: int = 256, temperature: float = 0.1) -> str:
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant for hate speech detection. Be concise and follow instructions exactly.",
+            },
+            {"role": "user", "content": prompt},
+        ]
+        temp = temperature if temperature is not None else self.default_temperature
+        return self._chat(messages, num_predict=max_new_tokens, temperature=temp)
+
+    def detect_hate_speech_binary(self, text: str) -> Tuple[bool, str]:
+        """
+        Task 1: Detect if text contains hate speech (binary classification)
+        Returns: (contains_hate_speech, explanation)
+        """
+        prompt = (
+            """Analyze the following text and determine if it contains hate speech.\n"""
+            "Hate speech is language that attacks or uses pejorative or discriminatory language with reference to a person or "
+            "group based on attributes such as race, ethnicity, gender, religion, sexual orientation, disability, or nationality.\n\n"
+            f'Text: "{text}"\n\n'
+            'Answer with either "YES" or "NO" followed by a brief explanation.\nAnswer:'
+        )
+        response = self.generate_response(prompt, max_new_tokens=150, temperature=self.default_temperature)
+        contains_hate = False
+        # Be robust to models that might add punctuation or emojis
+        first_tokens = re.findall(r"\b\w+\b", response.lower())[:2]
+        if any(tok in {"yes", "y"} for tok in first_tokens):
+            contains_hate = True
+        return contains_hate, response
+
+    def extract_hate_speech_sentences(self, text: str) -> Tuple[List[str], int, int]:
+        """
+        Task 2: Extract sentences containing hate speech and count tokens
+        Returns: (hate_sentences, tokens_covered, total_tokens)
+        """
+        prompt = (
+            """Given the following text, identify and extract ONLY the sentences that contain hate speech.\n"""
+            "List each sentence on a new line. If no hate speech is present, respond with \"NONE\".\n\n"
+            f'Text: "{text}"\n\n'
+            "Hate speech sentences:"
+        )
+        response = self.generate_response(prompt, max_new_tokens=300, temperature=self.default_temperature)
+
+        # Parse extracted sentences
+        normalized = response.strip().lower()
+        if normalized == "none" or normalized.startswith("none"):
+            hate_sentences: List[str] = []
+        else:
+            # Split lines and semicolons/bullets
+            raw_lines = re.split(r"[\n;]+", response)
+            candidates = [ln.strip(" -•\t") for ln in raw_lines if ln.strip()]
+            hate_sentences = [s for s in candidates if len(s) > 3]
+
+        # Token coverage (approximate)
+        total_tokens = self._token_count(text)
+        tokens_covered = self._token_count(" ".join(hate_sentences)) if hate_sentences else 0
+        return hate_sentences, tokens_covered, total_tokens
+
+    def categorize_hate_speech(self, text: str, categories_prompt: str) -> Tuple[int, str]:
+        """
+        Task 3: Categorize hate speech into predefined categories (0-7)
+        Returns: (category, explanation)
+        """
+        prompt = (
+            f"{categories_prompt}\n\n"
+            "Analyze the following text and classify it into one of the categories above (0-7).\n"
+            "Respond with the category number followed by a brief explanation.\n\n"
+            f'Text: "{text}"\n\n'
+            "Category:"
+        )
+        response = self.generate_response(prompt, max_new_tokens=200, temperature=self.default_temperature)
+        # Extract first occurrence of a digit 0-7 as category
+        category = 0
+        m = re.search(r"\b([0-7])\b", response)
+        if m:
+            category = int(m.group(1))
+        return category, response
+
+    def analyze_text_complete(self, text: str, categories_prompt: str) -> Dict:
+        """
+        Perform all three tasks on a single text
+        Returns: result dict
+        """
+        has_hate, binary_explanation = self.detect_hate_speech_binary(text)
+        hate_sentences, tokens_covered, total_tokens = self.extract_hate_speech_sentences(text)
+        category, category_explanation = self.categorize_hate_speech(text, categories_prompt)
+        return {
+            "text": text,
+            "has_hate_speech": has_hate,
+            "binary_explanation": binary_explanation,
+            "hate_sentences": hate_sentences,
+            "tokens_covered": tokens_covered,
+            "total_tokens": total_tokens,
+            "token_coverage_ratio": (tokens_covered / total_tokens) if total_tokens > 0 else 0.0,
+            "category": category,
+            "category_explanation": category_explanation,
+        }

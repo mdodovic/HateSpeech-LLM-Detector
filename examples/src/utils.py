@@ -1,91 +1,55 @@
 """
 Utility functions for HateSpeech-LLM-Detector
 """
-
+from typing import List, Dict, Any
+import sys
 import json
 import csv
-from typing import List, Dict, Any
-import os
 
 # Constants
 NO_HATE_SPEECH_CATEGORY = 0
 
 
 def load_json_dataset(filepath: str) -> List[Dict[str, Any]]:
-    """
-    Load dataset from JSON file
-    
-    Args:
-        filepath: Path to JSON file
-        
-    Returns:
-        List of dataset samples
-    """
+    """Load dataset from JSON file"""
     with open(filepath, 'r', encoding='utf-8') as f:
         data = json.load(f)
     return data
 
 
 def save_json_dataset(data: List[Dict[str, Any]], filepath: str):
-    """
-    Save dataset to JSON file
-    
-    Args:
-        data: List of dataset samples
-        filepath: Path to save JSON file
-    """
+    """Save dataset to JSON file"""
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 def load_csv_dataset(filepath: str) -> List[Dict[str, Any]]:
-    """
-    Load dataset from CSV file
-    Expected columns: text, has_hate_speech, category
-    
-    Args:
-        filepath: Path to CSV file
-        
-    Returns:
-        List of dataset samples
-    """
-    data = []
+    """Load dataset from CSV file. Expected columns: text, has_hate_speech, category"""
+    data: List[Dict[str, Any]] = []
     with open(filepath, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
-        for i, row in enumerate(reader, start=1):
+        for row in reader:
+            text = row.get('text', '')
+            has_hate = row.get('has_hate_speech', 'false').strip().lower() in {"1", "true", "yes", "y"}
             try:
-                # Handle various boolean representations
-                has_hate_str = row['has_hate_speech'].strip().lower()
-                has_hate_speech = has_hate_str in ['true', '1', 'yes', 't', 'y']
-                
-                # Handle category with error checking
-                try:
-                    category = int(row['category'])
-                except ValueError:
-                    raise ValueError(f"Row {i}: Invalid category value '{row['category']}'. Must be an integer 0-7.")
-                
-                data.append({
-                    'text': row['text'],
-                    'has_hate_speech': has_hate_speech,
-                    'category': category
-                })
-            except KeyError as e:
-                raise KeyError(f"Row {i}: Missing required column {e}")
+                category = int(row.get('category', NO_HATE_SPEECH_CATEGORY))
+            except Exception:
+                category = NO_HATE_SPEECH_CATEGORY
+            data.append({
+                'text': text,
+                'has_hate_speech': bool(has_hate),
+                'category': category,
+            })
     return data
 
 
 def save_csv_dataset(data: List[Dict[str, Any]], filepath: str):
-    """
-    Save dataset to CSV file
-    
-    Args:
-        data: List of dataset samples
-        filepath: Path to save CSV file
-    """
+    """Save dataset to CSV file"""
+    if not data:
+        with open(filepath, 'w', encoding='utf-8', newline='') as f:
+            f.write('text,has_hate_speech,category\n')
+        return
     with open(filepath, 'w', encoding='utf-8', newline='') as f:
-        if not data:
-            return
-        
         fieldnames = list(data[0].keys())
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -93,13 +57,6 @@ def save_csv_dataset(data: List[Dict[str, Any]], filepath: str):
 
 
 def convert_csv_to_json(csv_path: str, json_path: str):
-    """
-    Convert CSV dataset to JSON format
-    
-    Args:
-        csv_path: Path to input CSV file
-        json_path: Path to output JSON file
-    """
     data = load_csv_dataset(csv_path)
     save_json_dataset(data, json_path)
     print(f"Converted {csv_path} to {json_path}")
@@ -107,13 +64,6 @@ def convert_csv_to_json(csv_path: str, json_path: str):
 
 
 def convert_json_to_csv(json_path: str, csv_path: str):
-    """
-    Convert JSON dataset to CSV format
-    
-    Args:
-        json_path: Path to input JSON file
-        csv_path: Path to output CSV file
-    """
     data = load_json_dataset(json_path)
     save_csv_dataset(data, csv_path)
     print(f"Converted {json_path} to {csv_path}")
@@ -121,79 +71,60 @@ def convert_json_to_csv(json_path: str, csv_path: str):
 
 
 def validate_dataset(data: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Validate dataset structure and return statistics
-    
-    Args:
-        data: List of dataset samples
-        
-    Returns:
-        Dictionary with validation results and statistics
-    """
-    errors = []
-    warnings = []
-    
+    """Validate dataset structure and return statistics"""
+    errors: List[str] = []
+    warnings: List[str] = []
+
     if not data:
         errors.append("Dataset is empty")
-        return {"valid": False, "errors": errors, "warnings": warnings}
-    
-    # Check required fields
+        return {"valid": False, "errors": errors, "warnings": warnings, "statistics": {"total_samples": 0}}
+
     required_fields = ['text', 'has_hate_speech', 'category']
-    
+
     for i, sample in enumerate(data):
-        # Check required fields exist
+        # Required fields
         for field in required_fields:
             if field not in sample:
-                errors.append(f"Sample {i}: Missing required field '{field}'")
-        
-        # Check field types
+                errors.append(f"Sample {i} missing field: {field}")
+        # Types
         if 'text' in sample and not isinstance(sample['text'], str):
-            errors.append(f"Sample {i}: 'text' should be string")
-        
+            errors.append(f"Sample {i} 'text' is not a string")
         if 'has_hate_speech' in sample and not isinstance(sample['has_hate_speech'], bool):
-            errors.append(f"Sample {i}: 'has_hate_speech' should be boolean")
-        
+            warnings.append(f"Sample {i} 'has_hate_speech' should be bool")
         if 'category' in sample:
-            if not isinstance(sample['category'], int):
-                errors.append(f"Sample {i}: 'category' should be integer")
-            elif not (0 <= sample['category'] <= 7):
-                errors.append(f"Sample {i}: 'category' should be 0-7, got {sample['category']}")
-        
-        # Check logical consistency
+            try:
+                cat = int(sample['category'])
+                if cat < 0 or cat > 7:
+                    warnings.append(f"Sample {i} 'category' should be 0-7")
+            except Exception:
+                warnings.append(f"Sample {i} 'category' is not an int")
+        # Logical consistency
         if 'has_hate_speech' in sample and 'category' in sample:
-            if not sample['has_hate_speech'] and sample['category'] != NO_HATE_SPEECH_CATEGORY:
-                warnings.append(f"Sample {i}: has_hate_speech=False but category={sample['category']} (should be {NO_HATE_SPEECH_CATEGORY})")
-    
-    # Calculate statistics
-    # Calculate statistics
+            try:
+                cat = int(sample['category'])
+                has = bool(sample['has_hate_speech'])
+                if not has and cat != NO_HATE_SPEECH_CATEGORY:
+                    warnings.append(f"Sample {i}: no hate speech but category != 0")
+            except Exception:
+                pass
+
     total_samples = len(data)
     stats = {
         "total_samples": total_samples,
         "hate_speech_count": sum(1 for s in data if s.get('has_hate_speech', False)),
         "no_hate_count": sum(1 for s in data if not s.get('has_hate_speech', False)),
-        "category_distribution": {}
+        "category_distribution": {},
     }
-    
-    for i in range(8):
-        count = sum(1 for s in data if s.get('category') == i)
+    for cid in range(8):
+        count = sum(1 for s in data if s.get('category') == cid)
         if count > 0:
-            stats["category_distribution"][i] = count
-    
-    return {
-        "valid": len(errors) == 0,
-        "errors": errors,
-        "warnings": warnings,
-        "statistics": stats
-    }
+            stats["category_distribution"][cid] = count
+
+    return {"valid": len(errors) == 0, "errors": errors, "warnings": warnings, "statistics": stats}
 
 
 def print_dataset_info(filepath: str):
-    """
-    Print information about a dataset file
-    
-    Args:
-        filepath: Path to dataset file (JSON or CSV)
-    """
+    """Print information about a dataset file"""
     # Determine file type and load
     if filepath.endswith('.json'):
         data = load_json_dataset(filepath)
@@ -202,51 +133,42 @@ def print_dataset_info(filepath: str):
     else:
         print(f"Unsupported file type: {filepath}")
         return
-    
-    # Validate and get info
+
     validation = validate_dataset(data)
-    
+
     print(f"\nDataset Info: {filepath}")
     print("=" * 60)
-    
+
     if validation["valid"]:
-        print("✓ Dataset is valid")
+        print("\u2713 Dataset is valid")
     else:
-        print("✗ Dataset has errors:")
+        print("\u2717 Dataset has errors:")
         for error in validation["errors"]:
             print(f"  - {error}")
-    
+
     if validation["warnings"]:
         print("\nWarnings:")
         for warning in validation["warnings"]:
             print(f"  - {warning}")
-    
+
     stats = validation["statistics"]
     print(f"\nStatistics:")
-    print(f"  Total samples: {stats['total_samples']}")
-    
-    # Guard against division by zero
-    if stats['total_samples'] > 0:
-        print(f"  Hate speech: {stats['hate_speech_count']} ({stats['hate_speech_count']/stats['total_samples']*100:.1f}%)")
-        print(f"  No hate speech: {stats['no_hate_count']} ({stats['no_hate_count']/stats['total_samples']*100:.1f}%)")
-        
-        print(f"\n  Category distribution:")
-        for cat_id, count in sorted(validation["statistics"]["category_distribution"].items()):
-            print(f"    Category {cat_id}: {count} ({count/stats['total_samples']*100:.1f}%)")
-    else:
-        print("  (No samples to display statistics)")
+    print(f"  Total samples: {stats.get('total_samples', 0)}")
+    if stats.get('total_samples', 0) > 0:
+        hs = stats['hate_speech_count']
+        nh = stats['no_hate_count']
+        tot = stats['total_samples']
+        print(f"  Hate speech: {hs} ({hs/tot*100:.1f}%)")
+        print(f"  No hate speech: {nh} ({nh/tot*100:.1f}%)")
+        if stats.get('category_distribution'):
+            print(f"\n  Category distribution:")
+            for cat_id, count in sorted(stats['category_distribution'].items()):
+                print(f"    Category {cat_id}: {count} ({count/tot*100:.1f}%)")
 
 
 def merge_datasets(filepaths: List[str], output_path: str):
-    """
-    Merge multiple datasets into one
-    
-    Args:
-        filepaths: List of paths to dataset files
-        output_path: Path to save merged dataset
-    """
-    merged_data = []
-    
+    """Merge multiple datasets into one"""
+    merged_data: List[Dict[str, Any]] = []
     for filepath in filepaths:
         if filepath.endswith('.json'):
             data = load_json_dataset(filepath)
@@ -255,11 +177,9 @@ def merge_datasets(filepaths: List[str], output_path: str):
         else:
             print(f"Skipping unsupported file type: {filepath}")
             continue
-        
         merged_data.extend(data)
         print(f"Added {len(data)} samples from {filepath}")
-    
-    # Save merged dataset
+
     if output_path.endswith('.json'):
         save_json_dataset(merged_data, output_path)
     elif output_path.endswith('.csv'):
@@ -267,53 +187,47 @@ def merge_datasets(filepaths: List[str], output_path: str):
     else:
         print(f"Unsupported output file type: {output_path}")
         return
-    
+
     print(f"\nMerged dataset saved to {output_path}")
     print(f"Total samples: {len(merged_data)}")
 
 
 if __name__ == "__main__":
-    # Example usage
-    import sys
-    
     if len(sys.argv) < 2:
         print("Usage:")
         print("  python utils.py info <dataset_file>")
         print("  python utils.py convert <input_file> <output_file>")
         print("  python utils.py merge <output_file> <input1> <input2> ...")
         sys.exit(1)
-    
+
     command = sys.argv[1]
-    
+
     if command == "info":
         if len(sys.argv) < 3:
             print("Usage: python utils.py info <dataset_file>")
             sys.exit(1)
         print_dataset_info(sys.argv[2])
-    
+
     elif command == "convert":
         if len(sys.argv) < 4:
             print("Usage: python utils.py convert <input_file> <output_file>")
             sys.exit(1)
-        
         input_file = sys.argv[2]
         output_file = sys.argv[3]
-        
         if input_file.endswith('.json') and output_file.endswith('.csv'):
             convert_json_to_csv(input_file, output_file)
         elif input_file.endswith('.csv') and output_file.endswith('.json'):
             convert_csv_to_json(input_file, output_file)
         else:
             print("Unsupported conversion")
-    
+
     elif command == "merge":
         if len(sys.argv) < 4:
             print("Usage: python utils.py merge <output_file> <input1> <input2> ...")
             sys.exit(1)
-        
         output_file = sys.argv[2]
         input_files = sys.argv[3:]
         merge_datasets(input_files, output_file)
-    
+
     else:
         print(f"Unknown command: {command}")
