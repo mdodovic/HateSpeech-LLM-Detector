@@ -3,6 +3,8 @@ Base LLM Detector for Hate Speech Detection (Ollama backend)
 """
 
 import re
+import os
+from pathlib import Path
 import requests
 from typing import List, Dict, Tuple
 
@@ -107,13 +109,14 @@ class LLMDetector:
         Zadatak 1: Utvrdi da li tekst sadrži govor mržnje (binarna klasifikacija)
         Vraća: (sadrži_govor_mržnje, objašnjenje)
         """
-        prompt = (
-            "Analiziraj sledeći tekst i odredi da li sadrži govor mržnje.\n"
-            "Govor mržnje je jezik koji napada ili koristi pežorativne ili diskriminatorne izraze u odnosu na osobu ili grupu "
-            "na osnovu rasnih, etničkih, polnih/rodnih, verskih, seksualnih, zdravstvenih, nacionalnih ili drugih svojstava.\n\n"
-            f'Tekst: "{text}"\n\n'
-            'Odgovori sa "DA" ili "NE" i dodaj kratko objašnjenje.\nOdgovor:'
-        )
+        # Load prompt relative to this file to avoid CWD issues
+        prompts_dir = Path(__file__).parent / "prompts"
+        prompt_path = prompts_dir / "detect.txt"
+        with open(prompt_path, encoding="utf-8") as f:
+            prompt = f.read().strip()
+
+        prompt = prompt.format(text=text)
+
         response = self.generate_response(prompt, max_new_tokens=150, temperature=self.default_temperature)
         contains_hate = False
         first_tokens = re.findall(r"\b\w+\b", response.lower())[:2]
@@ -132,6 +135,7 @@ class LLMDetector:
             f'Tekst: "{text}"\n\n'
             "Rečenice sa govorom mržnje:"
         )
+
         response = self.generate_response(prompt, max_new_tokens=300, temperature=self.default_temperature)
 
         normalized = response.strip().lower()

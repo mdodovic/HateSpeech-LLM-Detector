@@ -1,0 +1,6 @@
+Analiziraj sledeći tekst i odredi da li sadrži govor mržnje.
+Govor mržnje je jezik koji napada ili koristi pežorativne ili diskriminatorne izraze u odnosu na osobu ili grupu 
+na osnovu rasnih, etničkih, polnih/rodnih, verskih, seksualnih, zdravstvenih, nacionalnih ili drugih svojstava.
+Tekst: {text}
+Odgovori sa "DA" ili "NE" i dodaj kratko objašnjenje.
+Odgovor:
