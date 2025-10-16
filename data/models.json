@@ -1,0 +1,7 @@
+{
+    "llama": "llama3",
+    "mistral": "mistral",
+    "deepseek": "deepseek-r1",
+    "phi3": "phi3",
+    "qwen3": "qwen3"
+}

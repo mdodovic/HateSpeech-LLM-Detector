@@ -104,10 +104,10 @@ class LLMDetector:
         temp = temperature if temperature is not None else self.default_temperature
         return self._chat(messages, num_predict=max_new_tokens, temperature=temp)
 
-    def detect_hate_speech_binary(self, text: str) -> Tuple[bool, str]:
+    def detect_hate_speech_binary(self, text: str) -> bool:
         """
         Zadatak 1: Utvrdi da li tekst sadrži govor mržnje (binarna klasifikacija)
-        Vraća: (sadrži_govor_mržnje, objašnjenje)
+        Vraća: (sadrži_govor_mržnje)
         """
         # Load prompt relative to this file to avoid CWD issues
         prompts_dir = Path(__file__).parent / "prompts"
@@ -122,7 +122,7 @@ class LLMDetector:
         first_tokens = re.findall(r"\b\w+\b", response.lower())[:2]
         if any(tok in {"da"} for tok in first_tokens):
             contains_hate = True
-        return contains_hate, response
+        return contains_hate
 
     def extract_hate_speech_sentences(self, text: str) -> Tuple[List[str], int, int]:
         """

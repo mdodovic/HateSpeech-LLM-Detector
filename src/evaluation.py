@@ -58,9 +58,15 @@ class HateSpeechEvaluator:
         }
 
     def generate_classification_report(self, y_true: List[int], y_pred: List[int], category_names: Dict[int, str]) -> str:
-        """Generate detailed classification report for categories"""
-        target_names = [category_names.get(i, f"Kategorija {i}") for i in range(len(category_names))]
-        return classification_report(y_true, y_pred, target_names=target_names, zero_division=0)
+        """Generate detailed classification report for categories.
+
+        Ensures the `labels` parameter matches `target_names` to avoid mismatches when
+        some classes are absent in y_true/y_pred.
+        """
+        # Use explicit labels derived from the provided mapping to keep report consistent
+        labels = sorted(category_names.keys())
+        target_names = [category_names.get(i, f"Kategorija {i}") for i in labels]
+        return classification_report(y_true, y_pred, labels=labels, target_names=target_names, zero_division=0)
 
     def generate_confusion_matrix(self, y_true: List[int], y_pred: List[int]):
         """Generate confusion matrix"""
