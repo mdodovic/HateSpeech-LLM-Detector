@@ -5,8 +5,8 @@ Demo skripta za detekciju govora mržnje (samo srpski)
 import sys
 sys.path.append('./examples/src')
 
-from llm_detector import LLMDetector
-from categories_srb import get_category_prompt, HATE_SPEECH_CATEGORIES
+from src.llm_detector import LLMDetector
+from src.categories import get_category_prompt, HATE_SPEECH_CATEGORIES
 
 
 def demo_single_text():

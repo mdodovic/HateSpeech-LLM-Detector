@@ -6,7 +6,7 @@ A comprehensive framework for detecting and categorizing hate speech using LLMs.
 
 from .llm_detector import LLMDetector
 from .evaluation import HateSpeechEvaluator
-from .categories_en import HATE_SPEECH_CATEGORIES, CATEGORY_DESCRIPTIONS, get_category_prompt
+from .categories import HATE_SPEECH_CATEGORIES, CATEGORY_DESCRIPTIONS, get_category_prompt
 from .utils import (
     load_json_dataset, 
     save_json_dataset, 

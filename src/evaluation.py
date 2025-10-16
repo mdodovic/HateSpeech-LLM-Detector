@@ -59,7 +59,7 @@ class HateSpeechEvaluator:
 
     def generate_classification_report(self, y_true: List[int], y_pred: List[int], category_names: Dict[int, str]) -> str:
         """Generate detailed classification report for categories"""
-        target_names = [category_names.get(i, f"Category {i}") for i in range(len(category_names))]
+        target_names = [category_names.get(i, f"Kategorija {i}") for i in range(len(category_names))]
         return classification_report(y_true, y_pred, target_names=target_names, zero_division=0)
 
     def generate_confusion_matrix(self, y_true: List[int], y_pred: List[int]):
@@ -69,27 +69,29 @@ class HateSpeechEvaluator:
     def compare_models(self, results_dict: Dict[str, Dict]):
         """Compare results across multiple models"""
         rows = []
-        for model_name, results in results_dict.items():
+        for model_name, res in results_dict.items():
             row = {"model": model_name}
-            row.update(results)
+            row.update({f"binary_{k}": v for k, v in res.get("binary_metrics", {}).items()})
+            row.update({f"category_{k}": v for k, v in res.get("category_metrics", {}).items()})
+            row.update({f"token_{k}": v for k, v in res.get("token_metrics", {}).items()})
             rows.append(row)
         return pd.DataFrame(rows)
 
     def print_results(self, model_name: str, binary_metrics: Dict, category_metrics: Dict, token_metrics: Dict):
         """Print formatted evaluation results"""
         print(f"\n{'='*60}")
-        print(f"Results for: {model_name}")
+        print(f"Rezultati za: {model_name}")
         print(f"{'='*60}")
 
-        print("\n--- Task 1: Binary Hate Speech Detection ---")
+        print("\n--- Zadatak 1: Binarna detekcija ---")
         for metric, value in binary_metrics.items():
             print(f"{metric.capitalize():15s}: {value:.4f}")
 
-        print("\n--- Task 3: Hate Speech Categorization ---")
+        print("\n--- Zadatak 3: Kategorizacija ---")
         for metric, value in category_metrics.items():
             print(f"{metric:20s}: {value:.4f}")
 
-        print("\n--- Task 2: Token Coverage Statistics ---")
+        print("\n--- Zadatak 2: Pokrivenost tokena ---")
         for metric, value in token_metrics.items():
             if isinstance(value, float):
                 print(f"{metric:20s}: {value:.4f}")
