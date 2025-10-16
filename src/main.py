@@ -1,5 +1,5 @@
 """
-Main script for Hate Speech Detection using Multiple LLMs (Ollama backend)
+Main script for Hate Speech Detection using Multiple LLMs (Ollama backend, Serbian only)
 """
 import os
 import json
@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from llm_detector import LLMDetector
 from evaluation import HateSpeechEvaluator
-from categories import get_category_prompt, HATE_SPEECH_CATEGORIES
+from examples.src.categories import get_category_prompt, HATE_SPEECH_CATEGORIES
 
 
 def load_dataset(dataset_path: str) -> List[Dict]:

@@ -35,25 +35,59 @@ class LLMDetector:
         # Splits on words and punctuation to better approximate LLM tokens
         return len(re.findall(r"\w+|\S", text))
 
+    def _to_prompt(self, messages: List[Dict[str, str]]) -> str:
+        # Convert chat messages to a single prompt for /api/generate
+        parts = []
+        for m in messages:
+            role = m.get("role", "user").strip()
+            content = m.get("content", "").strip()
+            if not content:
+                continue
+            parts.append(f"{role.capitalize()}: {content}")
+        parts.append("Assistant:")
+        return "\n\n".join(parts)
+
+    def _post(self, url: str, payload: Dict) -> requests.Response:
+        return self._session.post(url, json=payload, timeout=180)
+
     def _chat(self, messages: List[Dict[str, str]], num_predict: int, temperature: float) -> str:
-        payload = {
+        # Try /api/chat first
+        chat_payload = {
             "model": self.model_name,
             "messages": messages,
             "stream": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": num_predict,
-            },
+            "options": {"temperature": temperature, "num_predict": num_predict},
         }
-        resp = self._session.post(f"{self.base_url}/api/chat", json=payload, timeout=180)
+        chat_url = f"{self.base_url}/api/chat"
+        resp = self._post(chat_url, chat_payload)
+        if resp.status_code in (404, 405, 501):
+            # Fallback to /api/generate (older Ollama versions)
+            prompt = self._to_prompt(messages)
+            gen_payload = {
+                "model": self.model_name,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": temperature, "num_predict": num_predict},
+            }
+            gen_url = f"{self.base_url}/api/generate"
+            gen_resp = self._post(gen_url, gen_payload)
+            if gen_resp.status_code == 404 and "localhost" in self.base_url:
+                # Try 127.0.0.1 fallback
+                gen_url = gen_url.replace("localhost", "127.0.0.1")
+                gen_resp = self._post(gen_url, gen_payload)
+            gen_resp.raise_for_status()
+            data = gen_resp.json()
+            content = data.get("response", "")
+            return self._clean_content(content)
+
+        if resp.status_code == 404 and "localhost" in self.base_url:
+            # Try 127.0.0.1 for /api/chat
+            chat_url = chat_url.replace("localhost", "127.0.0.1")
+            resp = self._post(chat_url, chat_payload)
+
         resp.raise_for_status()
         data = resp.json()
-        # Ollama returns either {message: {role, content}} or {response: "..."} depending on API
-        content = (
-            (data.get("message") or {}).get("content")
-            or data.get("response")
-            or ""
-        )
+        content = ((data.get("message") or {}).get("content") or data.get("response") or "")
         return self._clean_content(content)
 
     # --- Public API (compatible with previous HF-based version) ---
@@ -61,7 +95,7 @@ class LLMDetector:
         messages = [
             {
                 "role": "system",
-                "content": "You are a helpful assistant for hate speech detection. Be concise and follow instructions exactly.",
+                "content": "Vi ste pomoćnik za detekciju govora mržnje. Odgovarajte sažeto i tačno, prateći instrukcije.",
             },
             {"role": "user", "content": prompt},
         ]
@@ -70,66 +104,61 @@ class LLMDetector:
 
     def detect_hate_speech_binary(self, text: str) -> Tuple[bool, str]:
         """
-        Task 1: Detect if text contains hate speech (binary classification)
-        Returns: (contains_hate_speech, explanation)
+        Zadatak 1: Utvrdi da li tekst sadrži govor mržnje (binarna klasifikacija)
+        Vraća: (sadrži_govor_mržnje, objašnjenje)
         """
         prompt = (
-            """Analyze the following text and determine if it contains hate speech.\n"""
-            "Hate speech is language that attacks or uses pejorative or discriminatory language with reference to a person or "
-            "group based on attributes such as race, ethnicity, gender, religion, sexual orientation, disability, or nationality.\n\n"
-            f'Text: "{text}"\n\n'
-            'Answer with either "YES" or "NO" followed by a brief explanation.\nAnswer:'
+            "Analiziraj sledeći tekst i odredi da li sadrži govor mržnje.\n"
+            "Govor mržnje je jezik koji napada ili koristi pežorativne ili diskriminatorne izraze u odnosu na osobu ili grupu "
+            "na osnovu rasnih, etničkih, polnih/rodnih, verskih, seksualnih, zdravstvenih, nacionalnih ili drugih svojstava.\n\n"
+            f'Tekst: "{text}"\n\n'
+            'Odgovori sa "DA" ili "NE" i dodaj kratko objašnjenje.\nOdgovor:'
         )
         response = self.generate_response(prompt, max_new_tokens=150, temperature=self.default_temperature)
         contains_hate = False
-        # Be robust to models that might add punctuation or emojis
         first_tokens = re.findall(r"\b\w+\b", response.lower())[:2]
-        if any(tok in {"yes", "y"} for tok in first_tokens):
+        if any(tok in {"da"} for tok in first_tokens):
             contains_hate = True
         return contains_hate, response
 
     def extract_hate_speech_sentences(self, text: str) -> Tuple[List[str], int, int]:
         """
-        Task 2: Extract sentences containing hate speech and count tokens
-        Returns: (hate_sentences, tokens_covered, total_tokens)
+        Zadatak 2: Izdvoj rečenice koje sadrže govor mržnje i izračunaj pokrivenost tokena
+        Vraća: (rečenice, pokriveni_tokeni, ukupno_tokena)
         """
         prompt = (
-            """Given the following text, identify and extract ONLY the sentences that contain hate speech.\n"""
-            "List each sentence on a new line. If no hate speech is present, respond with \"NONE\".\n\n"
-            f'Text: "{text}"\n\n'
-            "Hate speech sentences:"
+            "U datom tekstu identifikuj i izdvoj ISKLJUČIVO rečenice koje sadrže govor mržnje.\n"
+            "Svaku rečenicu navedi u posebnom redu. Ako govor mržnje nije prisutan, odgovori sa \"NEMA\".\n\n"
+            f'Tekst: "{text}"\n\n'
+            "Rečenice sa govorom mržnje:"
         )
         response = self.generate_response(prompt, max_new_tokens=300, temperature=self.default_temperature)
 
-        # Parse extracted sentences
         normalized = response.strip().lower()
-        if normalized == "none" or normalized.startswith("none"):
+        if normalized == "nema" or normalized.startswith("nema"):
             hate_sentences: List[str] = []
         else:
-            # Split lines and semicolons/bullets
             raw_lines = re.split(r"[\n;]+", response)
             candidates = [ln.strip(" -•\t") for ln in raw_lines if ln.strip()]
             hate_sentences = [s for s in candidates if len(s) > 3]
 
-        # Token coverage (approximate)
         total_tokens = self._token_count(text)
         tokens_covered = self._token_count(" ".join(hate_sentences)) if hate_sentences else 0
         return hate_sentences, tokens_covered, total_tokens
 
     def categorize_hate_speech(self, text: str, categories_prompt: str) -> Tuple[int, str]:
         """
-        Task 3: Categorize hate speech into predefined categories (0-7)
-        Returns: (category, explanation)
+        Zadatak 3: Klasifikuj govor mržnje u unapred definisane kategorije (0–7)
+        Vraća: (kategorija, objašnjenje)
         """
         prompt = (
             f"{categories_prompt}\n\n"
-            "Analyze the following text and classify it into one of the categories above (0-7).\n"
-            "Respond with the category number followed by a brief explanation.\n\n"
-            f'Text: "{text}"\n\n'
-            "Category:"
+            "Analiziraj sledeći tekst i svrataj ga u jednu od kategorija iznad (0–7).\n"
+            "Odgovori brojem kategorije, pa kratkim objašnjenjem.\n\n"
+            f'Tekst: "{text}"\n\n'
+            "Kategorija:"
         )
         response = self.generate_response(prompt, max_new_tokens=200, temperature=self.default_temperature)
-        # Extract first occurrence of a digit 0-7 as category
         category = 0
         m = re.search(r"\b([0-7])\b", response)
         if m:
