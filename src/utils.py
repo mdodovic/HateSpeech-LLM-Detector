@@ -101,6 +101,11 @@ def load_excel_dataset(filepath: str) -> List[Dict[str, Any]]:
         has_hate_val = row_dict.get("has_hate_speech")
         rec = _normalize_record(text, cat_code, has_hate_val if isinstance(has_hate_val, bool) else None)
         records.append(rec)
+
+    if not records:
+        print("Dataset je prazan ili nije moguće učitati podatke.")
+        exit(1)
+    
     return records
 
 

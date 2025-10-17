@@ -86,9 +86,6 @@ def run(excel_path: str, models: List[str]) -> None:
     """Pokreni evaluaciju za više LLM-ova i prikaži metrike."""
     print("Učitavam dataset iz Excel fajla…")
     records = load_excel_dataset(excel_path)
-    if not records:
-        print("Dataset je prazan ili nije moguće učitati podatke.")
-        return
 
     # Izgradi mapiranje ime->tag (ako models nije zadan, koristi sve iz JSON-a)
     model_tags: Dict[str, str] = build_model_tags(models)
