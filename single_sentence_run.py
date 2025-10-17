@@ -88,30 +88,81 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
     # Evaluacija
     evaluator = HateSpeechEvaluator()
     binary_metrics = evaluator.evaluate_binary_classification(y_true_bin, y_pred_bin)
-    category_metrics = evaluator.evaluate_multiclass_classification(y_true_cat, y_pred_cat, num_classes=8)
-    # token_metrics = evaluator.evaluate_token_coverage(tokens_covered_list, total_tokens_list)
+    category_metrics = evaluator.evaluate_multiclass_classification(y_true_cat, y_pred_cat)
+    subcategory_metrics = evaluator.evaluate_multiclass_classification(y_true_sub, y_pred_sub)
 
     # Tačnost za kategoriju i podkategoriju
-    cat_accuracy = float(accuracy_score(y_true_cat, y_pred_cat)) if y_true_cat else 0.0
-    sub_accuracy = float(accuracy_score(y_true_sub, y_pred_sub)) if y_true_sub else 0.0
     print("\n--- Dodatne metrike tačnosti ---")
-    print(f"Category accuracy:    {cat_accuracy:.4f} ({len(y_true_cat)} samples)")
-    print(f"Subcategory accuracy: {sub_accuracy:.4f} ({len(y_true_sub)} samples)")
-
-    # Dodatni izveštaji
-    # classification_report_text = evaluator.generate_classification_report(y_true_cat, y_pred_cat, CAT_NAMES)
-    # cm_binary = evaluator.generate_confusion_matrix([int(v) for v in y_true_bin], [int(v) for v in y_pred_bin])
-    # cm_cats = evaluator.generate_confusion_matrix(y_true_cat, y_pred_cat)
+    print(f"Binary accuracy:      {binary_metrics['accuracy']:.4f} ({len(y_true_bin)} samples)")
+    print(f"Category accuracy:    {category_metrics['accuracy']:.4f} ({len(y_true_cat)} samples)")
+    print(f"Subcategory accuracy: {subcategory_metrics['accuracy']:.4f} ({len(y_true_sub)} samples)")
 
     return {
         "binary_metrics": binary_metrics,
         "category_metrics": category_metrics,
-        "category_accuracy": cat_accuracy,
-        "subcategory_accuracy": sub_accuracy,
-        # "token_metrics": token_metrics,
-        # "classification_report": classification_report_text,
-        # "confusion_matrix_binary": cm_binary,
-        # "confusion_matrix_categories": cm_cats,
+        "subcategory_metrics": subcategory_metrics,
+    }
+
+
+def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) -> Dict:
+    """Evaluacija koristeći jedan kombinovani prompt (detekcija + kategorija)."""
+    print(f"Uzoraka za obradu: {len(records)}")
+    print("Inicijalizujem LLM detektor…")
+    detector = LLMDetector(model_tag)
+    categories_prompt = get_category_prompt()
+
+    y_true_bin: List[bool] = []
+    y_pred_bin: List[bool] = []
+    y_true_cat: List[int] = []
+    y_pred_cat: List[int] = []
+    y_true_sub: List[str] = []
+    y_pred_sub: List[str] = []
+
+    for idx, rec in enumerate(records, start=1):
+        text = (rec.get("text") or "").strip()
+        if not text:
+            continue
+        gt_has_hate = bool(rec.get("has_hate_speech", False))
+        gt_cat = int(rec.get("category", 0))
+        gt_subcat = str(rec.get("subcategory", ""))
+
+        result = detector.detect_and_categorize(text, categories_prompt)
+        has_hate = bool(result.get("has_hate_speech", False))
+        pred_cat = int(result.get("category", 0))
+        pred_sub = str(result.get("subcategory", ""))
+
+        y_true_bin.append(gt_has_hate)
+        y_pred_bin.append(has_hate)
+        y_true_cat.append(gt_cat)
+        y_pred_cat.append(pred_cat)
+        if gt_cat != 0:
+            # normalize sub to single letter if needed
+            m = re.match(r"^\s*([0-7])\s*([a-z])\s*$", pred_sub, flags=re.IGNORECASE)
+            pred_sub_letter = m.group(2).lower() if m else (pred_sub.lower() if re.match(r"^[a-z]$", pred_sub, flags=re.IGNORECASE) else "")
+            y_true_sub.append(gt_subcat or "")
+            y_pred_sub.append(pred_sub_letter or "")
+
+        short_text = (text[:120] + "…") if len(text) > 120 else text
+        print(f"\n[{idx}] {short_text}")
+        print(f"\tone-prompt has_hate={has_hate} vs gt={gt_has_hate}")
+        print(f"\tone-prompt category={pred_cat} vs gt={gt_cat}")
+        if gt_cat != 0:
+            print(f"\tone-prompt subcat={pred_sub or ''} vs gt={gt_subcat or ''}")
+
+    evaluator = HateSpeechEvaluator()
+    binary_metrics = evaluator.evaluate_binary_classification(y_true_bin, y_pred_bin)
+    category_metrics = evaluator.evaluate_multiclass_classification(y_true_cat, y_pred_cat)
+    subcategory_metrics = evaluator.evaluate_multiclass_classification(y_true_sub, y_pred_sub)
+
+    print("\n--- Jedan prompt: tačnost ---")
+    print(f"Binary accuracy:      {binary_metrics['accuracy']:.4f} ({len(y_true_bin)} samples)")
+    print(f"Category accuracy:    {category_metrics['accuracy']:.4f} ({len(y_true_cat)} samples)")
+    print(f"Subcategory accuracy: {subcategory_metrics['accuracy']:.4f} ({len(y_true_sub)} samples)")
+
+    return {
+        "binary_metrics": binary_metrics,
+        "category_metrics": category_metrics,
+        "subcategory_metrics": subcategory_metrics
     }
 
 
@@ -123,24 +174,26 @@ def run(excel_path: str, models: List[str]) -> None:
     # Izgradi mapiranje ime->tag (ako models nije zadan, koristi sve iz JSON-a)
     model_tags: Dict[str, str] = build_model_tags(models)
 
-    all_results: Dict[str, Dict] = {}
-    evaluator = HateSpeechEvaluator()
+    one_prompt_evaluator = HateSpeechEvaluator()
+    two_prompt_evaluator = HateSpeechEvaluator()
 
     for model_name, tag in model_tags.items():
         print("\n" + "=" * 70)
         print(f"Evaluacija za model: {model_name} (tag: {tag})")
         print("=" * 70)
-        res = two_prompts_evaluation_model_on_records(tag, records)
-        all_results[model_name] = res
+        print("-- Dva prompta (detekcija + kategorija) --")
+        res_two = two_prompts_evaluation_model_on_records(tag, records)
+        print("-- Jedan prompt (detekcija + kategorija) --")
+        res_one = one_prompt_evaluation_model_on_records(tag, records)
 
         # Štampa metrika za tekući model
-        evaluator.save_results(
-            tag,
-            res["binary_metrics"],
-            res["category_metrics"],
-            # res["token_metrics"],
-        )
-        evaluator.print_results(tag)
+        print("\n>> Rezime metrika (dva prompta)")
+        two_prompt_evaluator.save_results(tag, res_two)
+        two_prompt_evaluator.print_results(tag)
+
+        print("\n>> Rezime metrika (jedan prompt)")
+        one_prompt_evaluator.save_results(tag, res_one)
+        one_prompt_evaluator.print_results(tag)
 
         # print("\nKonfuziona matrica - binarna:")
         # print(res["confusion_matrix_binary"])
@@ -153,21 +206,33 @@ def run(excel_path: str, models: List[str]) -> None:
     print("\n" + "#" * 70)
     print("Uporedni pregled metrika po modelima")
     print("#" * 70)
-    compare_input = {}
-    for model_name, res in all_results.items():
-        compare_input[model_name] = {
-            "binary_metrics": res["binary_metrics"],
-            "category_metrics": res["category_metrics"],
-            # "token_metrics": res["token_metrics"],
-        }
+    # Uporedna tabela samo za kategoriju/subkategoriju između pristupa
+    print("\n=== Poređenje pristupa (category/subcategory accuracy) ===")
+    print(one_prompt_evaluator.results)
+    print("----------------------------")
+    print(two_prompt_evaluator.results)
+    for ev1 in one_prompt_evaluator.results:
+        model = ev1.get("model")
+        ev2 = next((e for e in two_prompt_evaluator.results if e.get("model") == model), None)
+        if not ev2:
+            continue
 
-    evaluator.compare_models(compare_input)
-    evaluator.save_results_to_excel("results/evaluation_comparison.xlsx", verbose=True)
+        binary_metrics_1 = ev1["results"].get("binary_metrics", {})
+        category_metrics_1 = ev1["results"].get("category_metrics", {})
+        subcategory_metrics_1 = ev1["results"].get("subcategory_metrics", {})
+
+        binary_metrics_2 = ev2["results"].get("binary_metrics", {})
+        category_metrics_2 = ev2["results"].get("category_metrics", {})
+        subcategory_metrics_2 = ev2["results"].get("subcategory_metrics", {})
+
+        print(f"Model: {ev1.get('model'), ev2.get('model')}")
+        print(f"  Two prompts  - binary acc: {binary_metrics_2.get('accuracy', 0):.4f}, cat acc: {category_metrics_2.get('accuracy', 0):.4f}, sub acc: {subcategory_metrics_2.get('accuracy', 0):.4f}")
+        print(f"  One prompt   - binary acc: {binary_metrics_1.get('accuracy', 0):.4f}, cat acc: {category_metrics_1.get('accuracy', 0):.4f}, sub acc: {subcategory_metrics_1.get('accuracy', 0):.4f}")
 
 
 if __name__ == "__main__":
     # Jednostavan podrazumevani poziv: koristi modele iz models/models.json ili data/models.json
     run(
         excel_path="data/hate_speech_labeled_samples_small.xlsx",
-        models=["deepseek"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
+        models=["llama"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
     )

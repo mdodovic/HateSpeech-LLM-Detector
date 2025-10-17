@@ -32,7 +32,7 @@ class HateSpeechEvaluator:
             "f1": f1_score(y_true_int, y_pred_int, zero_division=0),
         }
 
-    def evaluate_multiclass_classification(self, y_true: List[int], y_pred: List[int], num_classes: int = 8) -> Dict[str, float]:
+    def evaluate_multiclass_classification(self, y_true: List[int], y_pred: List[int]) -> Dict[str, float]:
         """Evaluate multiclass hate speech categorization (Task 3)"""
         return {
             "accuracy": accuracy_score(y_true, y_pred),
@@ -79,18 +79,16 @@ class HateSpeechEvaluator:
             row = {"model": model_name}
             row.update({f"binary_{k}": v for k, v in res.get("binary_metrics", {}).items()})
             row.update({f"category_{k}": v for k, v in res.get("category_metrics", {}).items()})
-            row.update({f"token_{k}": v for k, v in res.get("token_metrics", {}).items()})
             rows.append(row)
         self.df = pd.DataFrame(rows)
 
-    def save_results(self, model_name: str, binary_metrics: Dict = None, category_metrics: Dict = None, token_metrics: Dict = None):
+    def save_results(self, model_name: str, res:Dict):
         """Save evaluation results for a model"""
         self.results.append({
             "model": model_name,
-            "binary_metrics": binary_metrics,
-            "category_metrics": category_metrics,
-            "token_metrics": token_metrics,
-        })
+            "results":res
+            }
+        )
 
 
     def print_single_model_results(self, model_name: str):
@@ -102,7 +100,6 @@ class HateSpeechEvaluator:
         res = matching_results[0]
         binary_metrics = res.get("binary_metrics", {})
         category_metrics = res.get("category_metrics", {})
-        token_metrics = res.get("token_metrics", {})
 
         print(f"\nRezultati za model: {model_name}")
 
@@ -112,17 +109,9 @@ class HateSpeechEvaluator:
                 print(f"{metric.capitalize():15s}: {value:.4f}")
 
         if category_metrics is not None:
-            print("\n--- Zadatak 3: Kategorizacija ---")
+            print("\n--- Zadatak 2: Kategorizacija ---")
             for metric, value in category_metrics.items():
                 print(f"{metric:20s}: {value:.4f}")
-
-        if token_metrics is not None:
-            print("\n--- Zadatak 2: Pokrivenost tokena ---")
-            for metric, value in token_metrics.items():
-                if isinstance(value, float):
-                    print(f"{metric:20s}: {value:.4f}")
-                else:
-                    print(f"{metric:20s}: {value}")
 
     def print_results(self, model_name: str = None):
         """Print formatted evaluation results"""

@@ -1,0 +1,13 @@
+{categories_prompt}
+
+Analiziraj sledeći tekst i odgovori ISKLJUČIVO u sledećem formatu (tačno tri linije):
+GovorMržnje: DA ili NE
+Kategorija: [0-7]
+Podkategorija: [kod potkategorije npr. 3b ili prazno ako nema]
+
+Tekst: {text}
+
+Odgovor:
+GovorMržnje:
+Kategorija:
+Podkategorija:

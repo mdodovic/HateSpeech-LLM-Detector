@@ -12,7 +12,7 @@ from typing import List, Dict, Tuple
 class LLMDetector:
     """Base class for hate speech detection using local Ollama service"""
 
-    def __init__(self, model_name: str, base_url: str = "http://localhost:11434", default_temperature: float = 0.1, default_max_tokens: int = 1024):
+    def __init__(self, model_name: str, base_url: str = "http://localhost:11434", default_temperature: float = 0.1, default_max_tokens: int = 1024, prompts_dir: Path = Path(__file__).parent / "prompts"):
         """
         Initialize the LLM detector (Ollama)
 
@@ -26,6 +26,11 @@ class LLMDetector:
         self.default_temperature = default_temperature
         self.max_tokens = default_max_tokens
         self._session = requests.Session()
+
+        self.prompts_dir = prompts_dir
+        prompt_path = self.prompts_dir / "system_prompt.txt"
+        with open(prompt_path, encoding="utf-8") as f:
+            self.system_prompt = f.read().strip()
 
     # --- Internal helpers ---
     def _clean_content(self, text: str) -> str:
@@ -132,7 +137,7 @@ class LLMDetector:
         messages = [
             {
                 "role": "system",
-                "content": "Vi ste pomoćnik za detekciju govora mržnje. Odgovarajte sažeto i tačno, prateći instrukcije.",
+                "content": self.system_prompt,
             },
             {"role": "user", "content": prompt},
         ]
@@ -145,8 +150,7 @@ class LLMDetector:
         Vraća: (sadrži_govor_mržnje)
         """
         # Load prompt relative to this file to avoid CWD issues
-        prompts_dir = Path(__file__).parent / "prompts"
-        prompt_path = prompts_dir / "detect.txt"
+        prompt_path = self.prompts_dir / "detect.txt"
         with open(prompt_path, encoding="utf-8") as f:
             prompt = f.read().strip()
 
@@ -159,39 +163,12 @@ class LLMDetector:
             contains_hate = True
         return contains_hate
 
-    def extract_hate_speech_sentences(self, text: str) -> Tuple[List[str], int, int]:
-        """
-        Zadatak 2: Izdvoj rečenice koje sadrže govor mržnje i izračunaj pokrivenost tokena
-        Vraća: (rečenice, pokriveni_tokeni, ukupno_tokena)
-        """
-        prompt = (
-            "U datom tekstu identifikuj i izdvoj ISKLJUČIVO rečenice koje sadrže govor mržnje.\n"
-            "Svaku rečenicu navedi u posebnom redu. Ako govor mržnje nije prisutan, odgovori sa \"NEMA\".\n\n"
-            f'Tekst: "{text}"\n\n'
-            "Rečenice sa govorom mržnje:"
-        )
-
-        response = self.generate_response(prompt, max_new_tokens=300, temperature=self.default_temperature)
-        
-        normalized = response.strip().lower()
-        if normalized == "nema" or normalized.startswith("nema"):
-            hate_sentences: List[str] = []
-        else:
-            raw_lines = re.split(r"[\n;]+", response)
-            candidates = [ln.strip(" -•\t") for ln in raw_lines if ln.strip()]
-            hate_sentences = [s for s in candidates if len(s) > 3]
-
-        total_tokens = self._token_count(text)
-        tokens_covered = self._token_count(" ".join(hate_sentences)) if hate_sentences else 0
-        return hate_sentences, tokens_covered, total_tokens
-
     def categorize_hate_speech(self, text: str, categories_prompt: str) -> Tuple[int, str]:
         """
         Zadatak 3: Klasifikuj govor mržnje u unapred definisane kategorije (0–7)
         Vraća: (kategorija, podkategorija_kod)
         """
-        prompts_dir = Path(__file__).parent / "prompts"
-        prompt_path = prompts_dir / "classify.txt"
+        prompt_path = self.prompts_dir / "classify.txt"
         with open(prompt_path, encoding="utf-8") as f:
             prompt = f.read().strip()  
 
@@ -223,24 +200,104 @@ class LLMDetector:
                 subcategory = m2.group(1).lower()
 
         return category, subcategory
+    
+    def detect_and_categorize(self, text: str, categories_prompt: str) -> Dict:
+        """Jedan poziv koji detektuje govor mržnje i kategorizuje ga.
 
-    def analyze_text_complete(self, text: str, categories_prompt: str) -> Dict:
-        """
-        Perform all three tasks on a single text
-        Returns: result dict
-        """
-        has_hate = self.detect_hate_speech_binary(text)
-        binary_explanation = ""
-        hate_sentences, tokens_covered, total_tokens = self.extract_hate_speech_sentences(text)
-        category, category_subcategory = self.categorize_hate_speech(text, categories_prompt)
-        return {
-            "text": text,
-            "has_hate_speech": has_hate,
-            "binary_explanation": binary_explanation,
-            "hate_sentences": hate_sentences,
-            "tokens_covered": tokens_covered,
-            "total_tokens": total_tokens,
-            "token_coverage_ratio": (tokens_covered / total_tokens) if total_tokens > 0 else 0.0,
-            "category": category,
-            "category_subcategory": category_subcategory,
+        Vraća dict:
+        {
+          'has_hate_speech': bool,
+          'category': int (0-7),
+          'subcategory': str ('' ili npr. '3b'),
+          'raw': str (sirovi odgovor modela)
         }
+        """
+        prompt_path = self.prompts_dir / "detect_and_classify.txt"
+        with open(prompt_path, encoding="utf-8") as f:
+            prompt = f.read().strip()
+
+        prompt = prompt.format(text=text, categories_prompt=categories_prompt)
+        response = self.generate_response(prompt, max_new_tokens=self.max_tokens, temperature=self.default_temperature)
+
+        # Parsiraj DA/NE
+        has_hate = False
+        m_hs = re.search(r"(?i)govormržnje\s*:\s*(da|ne)", response)
+        if not m_hs:
+            # fallback for potential ASCII variants
+            m_hs = re.search(r"(?i)govor\s*mržnje\s*:\s*(da|ne)", response)
+        if m_hs:
+            has_hate = m_hs.group(1).strip().lower() == "da"
+
+        # Kategorija i podkategorija
+        category = 0
+        m_cat = re.search(r"(?i)kategorija\s*:\s*([0-7])\b", response)
+        if m_cat:
+            category = int(m_cat.group(1))
+        subcategory = ""
+        m_sub = re.search(r"(?i)podkategorija\s*:\s*([0-7][a-z])\b", response)
+        if m_sub:
+            subcategory = m_sub.group(1).lower()
+
+        # Fallbacks if lines not matched
+        if not m_cat:
+            m = re.search(r"\b([0-7])\b", response)
+            if m:
+                category = int(m.group(1))
+        if not m_sub:
+            m2 = re.search(r"\b([0-7][a-z])\b", response, flags=re.IGNORECASE)
+            if m2:
+                subcategory = m2.group(1).lower()
+
+        return {
+            "has_hate_speech": has_hate,
+            "category": int(category),
+            "subcategory": subcategory,
+            "raw": response,
+        }
+
+    # def extract_hate_speech_sentences(self, text: str) -> Tuple[List[str], int, int]:
+    #     """
+    #     Zadatak 2: Izdvoj rečenice koje sadrže govor mržnje i izračunaj pokrivenost tokena
+    #     Vraća: (rečenice, pokriveni_tokeni, ukupno_tokena)
+    #     """
+    #     prompt = (
+    #         "U datom tekstu identifikuj i izdvoj ISKLJUČIVO rečenice koje sadrže govor mržnje.\n"
+    #         "Svaku rečenicu navedi u posebnom redu. Ako govor mržnje nije prisutan, odgovori sa \"NEMA\".\n\n"
+    #         f'Tekst: "{text}"\n\n'
+    #         "Rečenice sa govorom mržnje:"
+    #     )
+
+    #     response = self.generate_response(prompt, max_new_tokens=300, temperature=self.default_temperature)
+        
+    #     normalized = response.strip().lower()
+    #     if normalized == "nema" or normalized.startswith("nema"):
+    #         hate_sentences: List[str] = []
+    #     else:
+    #         raw_lines = re.split(r"[\n;]+", response)
+    #         candidates = [ln.strip(" -•\t") for ln in raw_lines if ln.strip()]
+    #         hate_sentences = [s for s in candidates if len(s) > 3]
+
+    #     total_tokens = self._token_count(text)
+    #     tokens_covered = self._token_count(" ".join(hate_sentences)) if hate_sentences else 0
+    #     return hate_sentences, tokens_covered, total_tokens
+
+    # def analyze_text_complete(self, text: str, categories_prompt: str) -> Dict:
+    #     """
+    #     Perform all three tasks on a single text
+    #     Returns: result dict
+    #     """
+    #     has_hate = self.detect_hate_speech_binary(text)
+    #     binary_explanation = ""
+    #     hate_sentences, tokens_covered, total_tokens = self.extract_hate_speech_sentences(text)
+    #     category, category_subcategory = self.categorize_hate_speech(text, categories_prompt)
+    #     return {
+    #         "text": text,
+    #         "has_hate_speech": has_hate,
+    #         "binary_explanation": binary_explanation,
+    #         "hate_sentences": hate_sentences,
+    #         "tokens_covered": tokens_covered,
+    #         "total_tokens": total_tokens,
+    #         "token_coverage_ratio": (tokens_covered / total_tokens) if total_tokens > 0 else 0.0,
+    #         "category": category,
+    #         "category_subcategory": category_subcategory,
+    #     }
