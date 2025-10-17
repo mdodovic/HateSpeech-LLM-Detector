@@ -9,33 +9,8 @@ from typing import Optional, List, Dict
 
 from src.llm_detector import LLMDetector
 from src.categories import get_category_prompt, HATE_SPEECH_CATEGORIES
-from src.utils import load_excel_dataset
+from src.utils import load_excel_dataset, load_default_model_tags, build_model_tags
 from src.evaluation import HateSpeechEvaluator
-
-
-def demo_single_text():
-    print("Inicijalizacija LLM detektora (Ollama backend)...")
-    print("Uverite se da je Ollama pokrenuta. Ako /api/chat nije dostupno, koristi se /api/generate.")
-    model_name = "phi3"  # ili npr. "phi3:mini", "llama3.2:3b", "mistral:7b"
-
-    # Primeri tekstova (srpski)
-    texts = [
-        "Volim da provodim vreme sa ljudima iz različitih sredina.",
-        "Ti imigranti nam uništavaju zemlju i treba da se vrate odakle su došli.",
-        "Žene nisu sposobne da budu dobri inženjeri.",
-    ]
-
-    detector = LLMDetector(model_name)
-    categories_prompt = get_category_prompt()
-
-    for i, text in enumerate(texts, 1):
-        print(f"\n{'='*60}")
-        print(f"Tekst {i}: {text}")
-        print(f"{'='*60}")
-        result = detector.analyze_text_complete(text, categories_prompt)
-        print(f"Ima govor mržnje: {result['has_hate_speech']}")
-        print(f"Kategorija: {result['category']} - {HATE_SPEECH_CATEGORIES.get(result['category'], 'Nepoznato')}")
-        print(f"Pokrivenost tokena: {result['token_coverage_ratio']:.2%}")
 
 
 def evaluate_model_on_records(model_tag: str, records: List[Dict]) -> Dict:
@@ -107,19 +82,7 @@ def evaluate_model_on_records(model_tag: str, records: List[Dict]) -> Dict:
     }
 
 
-def parse_model_tags_arg(arg: Optional[str]) -> Dict[str, str]:
-    """Parsira string u formatu 'name=tag,name2=tag2' u dict."""
-    mapping: Dict[str, str] = {}
-    if not arg:
-        return mapping
-    for part in arg.split(","):
-        if "=" in part:
-            name, tag = part.split("=", 1)
-            mapping[name.strip().lower()] = tag.strip()
-    return mapping
-
-
-def run(excel_path: str, models: List[str], tags_override: Optional[str] = None) -> None:
+def run(excel_path: str, models: List[str]) -> None:
     """Pokreni evaluaciju za više LLM-ova i prikaži metrike."""
     print("Učitavam dataset iz Excel fajla…")
     records = load_excel_dataset(excel_path)
@@ -127,34 +90,8 @@ def run(excel_path: str, models: List[str], tags_override: Optional[str] = None)
         print("Dataset je prazan ili nije moguće učitati podatke.")
         return
 
-    # Učitaj podrazumevane Ollama tag vrednosti iz data/models.json
-    def load_default_tags() -> Dict[str, str]:
-        json_path = Path(__file__).parent / "data" / "models.json"
-        if not json_path.exists():
-            print(f"Upozorenje: Nije pronađen fajl sa modelima: {json_path}")
-            return {}
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        # normalizuj ključeve
-        return {str(k).strip().lower(): str(v).strip() for k, v in data.items()}
-    default_tags: Dict[str, str] = load_default_tags()
-    if not default_tags:
-        print("Upozorenje: Lista podrazumevanih modela je prazna. Prosledite --tags ili --models.")
-
-    # Primeni korisničke override tagove ako su prosleđeni
-    user_tags = parse_model_tags_arg(tags_override)
-    model_tags: Dict[str, str] = {}
-    # Ako lista modela nije zadana, uzmi sve iz fajla
-    if not models:
-        models = list(default_tags.keys())
-    for name in models:
-        key = name.strip().lower()
-        tag = user_tags.get(key) or default_tags.get(key) or key
-        model_tags[key] = tag
-
-    print("\nModeli za evaluaciju (ime -> ollama tag):")
-    for k, v in model_tags.items():
-        print(f"  {k} -> {v}")
+    # Izgradi mapiranje ime->tag (ako models nije zadan, koristi sve iz JSON-a)
+    model_tags: Dict[str, str] = build_model_tags(models)
 
     all_results: Dict[str, Dict] = {}
     evaluator = HateSpeechEvaluator()
@@ -202,9 +139,8 @@ def run(excel_path: str, models: List[str], tags_override: Optional[str] = None)
 
 
 if __name__ == "__main__":
-    # Jednostavan podrazumevani poziv: koristi modele iz data/models.json
+    # Jednostavan podrazumevani poziv: koristi modele iz models/models.json ili data/models.json
     run(
         excel_path="data/hate_speech_labeled_samples_small.xlsx",
-        models=[],  # ako je prazno, biće učitano iz data/models.json
-        tags_override=None
+        models=[],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
     )

@@ -2,6 +2,9 @@
 Utility functions for HateSpeech-LLM-Detector (Serbian)
 """
 from typing import List, Dict, Any
+from typing import Optional
+import json
+from pathlib import Path
 import sys
 import json
 import csv
@@ -99,6 +102,75 @@ def load_excel_dataset(filepath: str) -> List[Dict[str, Any]]:
         rec = _normalize_record(text, cat_code, has_hate_val if isinstance(has_hate_val, bool) else None)
         records.append(rec)
     return records
+
+
+def load_default_model_tags(models_json_path: Optional[str] = None) -> Dict[str, str]:
+    """Load default Ollama model tags from models/models.json.
+
+    Args:
+        models_json_path: Optional explicit path to models.json. If not provided,
+            will look for '<repo_root>/models/models.json' and then fallback to
+            '<repo_root>/data/models.json'.
+
+    Returns:
+        Dict mapping model display name (lowercased) -> ollama tag string.
+        Returns empty dict if file not found or invalid.
+    """
+    # Determine base directory from this utils.py file location
+    repo_root = Path(__file__).resolve().parents[1]
+
+    candidates = []
+    if models_json_path:
+        candidates.append(Path(models_json_path))
+    # Primary location
+    candidates.append(repo_root / "models" / "models.json")
+    # Backward-compat fallback
+    candidates.append(repo_root / "data" / "models.json")
+
+    json_path: Optional[Path] = None
+    for p in candidates:
+        if p.exists():
+            json_path = p
+            break
+
+    if json_path is None:
+        # Graceful fallback: return empty mapping
+        return {}
+
+    try:
+        # Support simple '//' comments by stripping them before parsing
+        with open(json_path, "r", encoding="utf-8") as f:
+            raw = f.read()
+        import re as _re
+        cleaned = _re.sub(r"//.*", "", raw)
+        data = json.loads(cleaned)
+        # Normalize keys and values to strings and lower-case keys
+        return {str(k).strip().lower(): str(v).strip() for k, v in dict(data).items()}
+    except Exception:
+        return {}
+
+
+def build_model_tags(models: Optional[List[str]] = None, models_json_path: Optional[str] = None) -> Dict[str, str]:
+    """Build mapping of model names to Ollama tags using models.json.
+
+    Behavior matches previous logic:
+    - If models list is empty/None: use all keys from models.json
+    - For each requested name, use tag from models.json if present; otherwise use the name itself
+    """
+    default_tags = load_default_model_tags(models_json_path)
+    mapping: Dict[str, str] = {}
+    if not models:
+        names = list(default_tags.keys())
+    else:
+        names = [str(n).strip().lower() for n in models]
+    for key in names:
+        mapping[key] = default_tags.get(key) or key
+
+    print("\nModeli za evaluaciju (ime -> ollama tag):")
+    for k, v in mapping.items():
+        print(f"  {k} -> {v}")
+
+    return mapping
 
 
 def validate_dataset(data: List[Dict[str, Any]]) -> Dict[str, Any]:
