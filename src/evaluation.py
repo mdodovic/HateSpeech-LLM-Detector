@@ -81,25 +81,63 @@ class HateSpeechEvaluator:
             row.update({f"category_{k}": v for k, v in res.get("category_metrics", {}).items()})
             row.update({f"token_{k}": v for k, v in res.get("token_metrics", {}).items()})
             rows.append(row)
-        return pd.DataFrame(rows)
+        self.df = pd.DataFrame(rows)
 
-    def print_results(self, model_name: str, binary_metrics: Dict, category_metrics: Dict, token_metrics: Dict):
-        """Print formatted evaluation results"""
-        print(f"\n{'='*60}")
-        print(f"Rezultati za: {model_name}")
-        print(f"{'='*60}")
+    def save_results(self, model_name: str, binary_metrics: Dict = None, category_metrics: Dict = None, token_metrics: Dict = None):
+        """Save evaluation results for a model"""
+        self.results.append({
+            "model": model_name,
+            "binary_metrics": binary_metrics,
+            "category_metrics": category_metrics,
+            "token_metrics": token_metrics,
+        })
 
-        print("\n--- Zadatak 1: Binarna detekcija ---")
-        for metric, value in binary_metrics.items():
-            print(f"{metric.capitalize():15s}: {value:.4f}")
 
-        print("\n--- Zadatak 3: Kategorizacija ---")
-        for metric, value in category_metrics.items():
-            print(f"{metric:20s}: {value:.4f}")
+    def print_single_model_results(self, model_name: str):
+        """Print results for a single model"""
+        matching_results = [res for res in self.results if res.get("model") == model_name]
+        if not matching_results:
+            print(f"Nema rezultata za model: {model_name}")
+            return
+        res = matching_results[0]
+        binary_metrics = res.get("binary_metrics", {})
+        category_metrics = res.get("category_metrics", {})
+        token_metrics = res.get("token_metrics", {})
 
-        print("\n--- Zadatak 2: Pokrivenost tokena ---")
-        for metric, value in token_metrics.items():
-            if isinstance(value, float):
+        print(f"\nRezultati za model: {model_name}")
+
+        if binary_metrics is not None:
+            print("\n--- Zadatak 1: Binarna detekcija ---")
+            for metric, value in binary_metrics.items():
+                print(f"{metric.capitalize():15s}: {value:.4f}")
+
+        if category_metrics is not None:
+            print("\n--- Zadatak 3: Kategorizacija ---")
+            for metric, value in category_metrics.items():
                 print(f"{metric:20s}: {value:.4f}")
-            else:
-                print(f"{metric:20s}: {value}")
+
+        if token_metrics is not None:
+            print("\n--- Zadatak 2: Pokrivenost tokena ---")
+            for metric, value in token_metrics.items():
+                if isinstance(value, float):
+                    print(f"{metric:20s}: {value:.4f}")
+                else:
+                    print(f"{metric:20s}: {value}")
+
+    def print_results(self, model_name: str = None):
+        """Print formatted evaluation results"""
+        if model_name is None and self.results:
+            print("Rezultati za sve modele:")
+            print("-" * 40)
+            for res in self.results:
+                self.print_single_model_results(res.get("model"))
+            return
+        
+        self.print_single_model_results(model_name)
+
+    def save_results_to_excel(self, output_path: str = None, verbose: bool = False):
+        """Save comparison results to Excel file"""
+        self.df.to_excel(output_path, index=False)
+        if verbose:
+            print(self.df)
+        print(f"\nRezultati su sačuvani u: {output_path}")
