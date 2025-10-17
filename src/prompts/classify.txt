@@ -1,0 +1,7 @@
+{categories_prompt}
+
+Analiziraj sledeći tekst i svrstaj ga u jednu od kategorija iznad.
+Odgovori brojem kategorije i podkategorijom ukoliko kategorija ima podkategoriju
+Tekst: {text}
+Kategorija:
+Podkategorija:
