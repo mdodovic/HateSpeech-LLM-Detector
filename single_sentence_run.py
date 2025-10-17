@@ -63,8 +63,8 @@ def evaluate_model_on_records(model_tag: str, records: List[Dict]) -> Dict:
     # Evaluacija
     evaluator = HateSpeechEvaluator()
     binary_metrics = evaluator.evaluate_binary_classification(y_true_bin, y_pred_bin)
-    category_metrics = evaluator.evaluate_multiclass_classification(y_true_cat, y_pred_cat, num_classes=8)
-    token_metrics = evaluator.evaluate_token_coverage(tokens_covered_list, total_tokens_list)
+    # category_metrics = evaluator.evaluate_multiclass_classification(y_true_cat, y_pred_cat, num_classes=8)
+    # token_metrics = evaluator.evaluate_token_coverage(tokens_covered_list, total_tokens_list)
 
     # # Dodatni izveštaji
     # from src.categories import HATE_SPEECH_CATEGORIES as CAT_NAMES
@@ -74,8 +74,8 @@ def evaluate_model_on_records(model_tag: str, records: List[Dict]) -> Dict:
 
     return {
         "binary_metrics": binary_metrics,
-        "category_metrics": category_metrics,
-        "token_metrics": token_metrics,
+        # "category_metrics": category_metrics,
+        # "token_metrics": token_metrics,
         # "classification_report": classification_report_text,
         # "confusion_matrix_binary": cm_binary,
         # "confusion_matrix_categories": cm_cats,
@@ -104,8 +104,8 @@ def run(excel_path: str, models: List[str]) -> None:
         evaluator.print_results(
             tag,
             res["binary_metrics"],
-            res["category_metrics"],
-            res["token_metrics"],
+            # res["category_metrics"],
+            # res["token_metrics"],
         )
         # print("\nKonfuziona matrica - binarna:")
         # print(res["confusion_matrix_binary"])
@@ -122,8 +122,8 @@ def run(excel_path: str, models: List[str]) -> None:
     for name, res in all_results.items():
         compare_input[name] = {
             "binary_metrics": res["binary_metrics"],
-            "category_metrics": res["category_metrics"],
-            "token_metrics": res["token_metrics"],
+            # "category_metrics": res["category_metrics"],
+            # "token_metrics": res["token_metrics"],
         }
     df = evaluator.compare_models(compare_input)
     try:
