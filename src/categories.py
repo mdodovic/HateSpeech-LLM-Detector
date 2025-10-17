@@ -57,7 +57,7 @@ SUBCATEGORY_DESCRIPTIONS = {
 
 def get_category_prompt(include_subcategories: bool = True) -> str:
     """Generiše prompt sa kategorijama (i potkategorijama ako je uključeno)."""
-    prompt = "Kategorije govora mržnje:\n"
+    prompt = "Kategorije i podkategorije govora mržnje su sledeće:\n"
     for cat_id in sorted(HATE_SPEECH_CATEGORIES.keys()):
         prompt += f"{cat_id}: {HATE_SPEECH_CATEGORIES[cat_id]}\n   {CATEGORY_DESCRIPTIONS[cat_id]}\n"
         if include_subcategories and cat_id in SUBCATEGORY_DESCRIPTIONS:

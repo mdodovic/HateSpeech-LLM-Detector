@@ -15,34 +15,49 @@ import pandas as pd
 NO_HATE_SPEECH_CATEGORY = 0
 
 
-def _map_serbian_category_code(code: str) -> int:
+def parse_category_and_subcategory(code: Any) -> Dict[str, Any]:
+    """Parse raw category cell into top-level int (0-7) and subcategory code.
+
+    Accepts values like:
+    - 0, "0" -> category=0, subcategory=""
+    - "1a", "3b", "6a" -> category=1/3/6, subcategory="a"/"b"/"a"
+    - "2 homofobija" -> category=2, subcategory=""
+
+    Returns dict: {"category": int, "subcategory": str}
+    """
+    if code is None:
+        return {"category": NO_HATE_SPEECH_CATEGORY, "subcategory": ""}
+    s = str(code).strip().lower()
+    if s == "":
+        return {"category": NO_HATE_SPEECH_CATEGORY, "subcategory": ""}
+    # Exact zero
+    if s == "0":
+        return {"category": 0, "subcategory": ""}
+    # Pattern like '3b'
+    m_code = re.match(r"^([0-7])\s*([a-z])$", s)
+    if m_code:
+        cat = int(m_code.group(1))
+        sub = m_code.group(2)
+        return {"category": cat, "subcategory": sub}
+    # Leading digit like '2 homofobija'
+    m_num = re.match(r"^([0-7])\b", s)
+    if m_num:
+        cat = int(m_num.group(1))
+        return {"category": cat, "subcategory": ""}
+    return {"category": NO_HATE_SPEECH_CATEGORY, "subcategory": ""}
+
+
+def _map_serbian_category_code(code: Any) -> int:
     """Map category codes to top-level class (0–7).
 
     Accepts values like:
     - "0" → 0 (no hate)
-    - "1a", "3b", "6a" → 1, 3, 6
+    - "1a", "3b", "6a" → 1, 3, 6 (top-level only)
     - "2 homofobija" → 2
     Any malformed or missing value maps to 0.
     """
-    if code is None:
-        return NO_HATE_SPEECH_CATEGORY
-    code = str(code).strip().lower()
-    if code == "":
-        return NO_HATE_SPEECH_CATEGORY
-    if code == "0":
-        return 0
-    m = re.match(r"^(\d)", code)
-    if m:
-        num = int(m.group(1))
-        if 0 <= num <= 7:
-            return num
-    # Try extracting a leading integer from strings like '2 homofobija'
-    m2 = re.match(r"^(\d)\b", code)
-    if m2:
-        num = int(m2.group(1))
-        if 0 <= num <= 7:
-            return num
-    return NO_HATE_SPEECH_CATEGORY
+    parsed = parse_category_and_subcategory(code)
+    return int(parsed["category"]) if isinstance(parsed.get("category"), int) else NO_HATE_SPEECH_CATEGORY
 
 
 def _extract_text(row: Dict[str, Any]) -> str:
@@ -64,12 +79,15 @@ def _normalize_record(text: str, category_value: Any, has_hate_value: Any = None
     - category_value can be "0", "1a", "2 homofobija", 3, etc.
     - has_hate_value is optional; if missing, inferred from category != 0
     """
-    category = _map_serbian_category_code(category_value)
+    parsed = parse_category_and_subcategory(category_value)
+    category = int(parsed["category"])
+    subcategory = parsed["subcategory"]
     has_hate = bool(has_hate_value) if isinstance(has_hate_value, bool) else (category != NO_HATE_SPEECH_CATEGORY)
     return {
         "text": text,
         "has_hate_speech": has_hate,
         "category": int(category),
+        "subcategory": subcategory,
     }
 
 
@@ -82,7 +100,7 @@ def load_excel_dataset(filepath: str) -> List[Dict[str, Any]]:
 
     Backward compatibility: if 'Id category' exists, it will be used; 'Labelar1' is ignored now.
 
-    Returns list of dicts: {text: str, has_hate_speech: bool, category: int}
+    Returns list of dicts: {text: str, has_hate_speech: bool, category: int, subcategory: str}
     """
     df = pd.read_excel(filepath)
     records: List[Dict[str, Any]] = []

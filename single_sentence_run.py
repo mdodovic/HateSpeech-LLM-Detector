@@ -10,6 +10,8 @@ Task 2 is extraction of the hate speech sentences extraction from long texts and
 """
 
 import argparse
+import re
+from sklearn.metrics import accuracy_score
 import json
 from pathlib import Path
 from typing import Optional, List, Dict
@@ -33,8 +35,8 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
     y_pred_bin: List[bool] = []
     y_true_cat: List[int] = []
     y_pred_cat: List[int] = []
-    # tokens_covered_list: List[int] = []
-    # total_tokens_list: List[int] = []
+    y_true_sub: List[str] = []
+    y_pred_sub: List[str] = []
 
     for idx, rec in enumerate(records, start=1):
         text = (rec.get("text") or "").strip()
@@ -43,38 +45,58 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
 
         # Zadatak 1: Binarna detekcija
         has_hate = detector.detect_hate_speech_binary(text)
+        gt_has_hate = bool(rec.get("has_hate_speech", False))
+        gt_cat = int(rec.get("category", 0))
+        gt_subcat = str(rec.get("subcategory", ""))
+
+        short_text = (text[:120] + "…") if len(text) > 120 else text
+        print(f"\n[{idx}] {short_text}")
+        print(f"\thas_hate={has_hate} {'  =  ' if has_hate == gt_has_hate else '!='} ground_truth={gt_has_hate}")
+
+        y_true_bin.append(gt_has_hate)
+        y_pred_bin.append(bool(has_hate))
 
         # Zadatak 3: Kategorizacija 0–7
         if has_hate:
-            pred_cat, _ = detector.categorize_hate_speech(text, categories_prompt)
+            pred_cat, pred_sub_cat = detector.categorize_hate_speech(text, categories_prompt)
+            print()
 
-            # # Zadatak 2: Izdvajanje recenica i token pokrivenost
-            # _sentences, tokens_covered, total_tokens = detector.extract_hate_speech_sentences(text)
-
-            # Ground truth
-            gt_has_hate = bool(rec.get("has_hate_speech", False))
-            gt_cat = int(rec.get("category", 0))
+            print(f"\tpredicted_category={pred_cat} {'  =  ' if pred_cat == gt_cat else '!='} ground_truth={gt_cat}")
+            # Only compare subcategory when GT has hate (category != 0)
+            if gt_cat != 0:
+                # Normalize predicted subcategory to a letter (e.g., '3b' -> 'b')
+                pred_sub_letter = ""
+                if isinstance(pred_sub_cat, str):
+                    m = re.match(r"^\s*([0-7])\s*([a-z])\s*$", pred_sub_cat, flags=re.IGNORECASE)
+                    if m:
+                        pred_sub_letter = m.group(2).lower()
+                    elif re.match(r"^[a-z]$", pred_sub_cat, flags=re.IGNORECASE):
+                        pred_sub_letter = pred_sub_cat.lower()
+                print(
+                    f"\tpredicted_subcategory={pred_sub_letter or ''} "
+                    f"{'  =  ' if (pred_sub_letter or '') == (gt_subcat or '') else '!='} "
+                    f"ground_truth_subcategory={gt_subcat or ''}"
+                )
+                # Accumulate for subcategory accuracy
+                y_true_sub.append(gt_subcat or "")
+                y_pred_sub.append(pred_sub_letter or "")
 
             # Akumulacija
-            y_true_bin.append(gt_has_hate)
-            y_pred_bin.append(bool(has_hate))
             y_true_cat.append(gt_cat)
             y_pred_cat.append(int(pred_cat) if isinstance(pred_cat, int) else 0)
-            # tokens_covered_list.append(int(tokens_covered))
-            # total_tokens_list.append(int(total_tokens))
-
-        # Kratki log za praćenje
-        short_text = (text[:120] + "…") if len(text) > 120 else text
-        print(f"\n[{idx}] {short_text}")
-        print(f"\thas_hate={has_hate}")
-        if has_hate:
-            print(f"\tpredicted_category={pred_cat} {'=' if pred_cat == gt_cat else '!='} ground_truth={gt_cat}")
 
     # Evaluacija
     evaluator = HateSpeechEvaluator()
     binary_metrics = evaluator.evaluate_binary_classification(y_true_bin, y_pred_bin)
     category_metrics = evaluator.evaluate_multiclass_classification(y_true_cat, y_pred_cat, num_classes=8)
     # token_metrics = evaluator.evaluate_token_coverage(tokens_covered_list, total_tokens_list)
+
+    # Tačnost za kategoriju i podkategoriju
+    cat_accuracy = float(accuracy_score(y_true_cat, y_pred_cat)) if y_true_cat else 0.0
+    sub_accuracy = float(accuracy_score(y_true_sub, y_pred_sub)) if y_true_sub else 0.0
+    print("\n--- Dodatne metrike tačnosti ---")
+    print(f"Category accuracy:    {cat_accuracy:.4f} ({len(y_true_cat)} samples)")
+    print(f"Subcategory accuracy: {sub_accuracy:.4f} ({len(y_true_sub)} samples)")
 
     # Dodatni izveštaji
     # classification_report_text = evaluator.generate_classification_report(y_true_cat, y_pred_cat, CAT_NAMES)
@@ -84,6 +106,8 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
     return {
         "binary_metrics": binary_metrics,
         "category_metrics": category_metrics,
+        "category_accuracy": cat_accuracy,
+        "subcategory_accuracy": sub_accuracy,
         # "token_metrics": token_metrics,
         # "classification_report": classification_report_text,
         # "confusion_matrix_binary": cm_binary,
@@ -145,5 +169,5 @@ if __name__ == "__main__":
     # Jednostavan podrazumevani poziv: koristi modele iz models/models.json ili data/models.json
     run(
         excel_path="data/hate_speech_labeled_samples_small.xlsx",
-        models=[],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
+        models=["deepseek"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
     )
