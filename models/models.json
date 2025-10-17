@@ -1,5 +1,5 @@
 {
-    "llama": "llama3",
+    "llama": "llama3.3",
     "mistral": "mistral",
     "deepseek": "deepseek-r1",
     "phi3": "phi3",
