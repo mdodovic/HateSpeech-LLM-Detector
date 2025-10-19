@@ -202,6 +202,9 @@ def run(excel_path: str, models: List[str]) -> None:
         # print("\nIzveštaj klasifikacije po kategorijama:")
         # print(res["classification_report"])
 
+    two_prompt_evaluator.save_results_to_excel("results/single_sentence_comparison.xlsx", sheet_name="Two Prompts")
+    one_prompt_evaluator.save_results_to_excel("results/single_sentence_comparison.xlsx", sheet_name="One Prompt")
+
     # Uporedni pregled (tabela)
     print("\n" + "#" * 70)
     print("Uporedni pregled metrika po modelima")
@@ -234,5 +237,5 @@ if __name__ == "__main__":
     # Jednostavan podrazumevani poziv: koristi modele iz models/models.json ili data/models.json
     run(
         excel_path="data/hate_speech_labeled_samples_small.xlsx",
-        models=["llama"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
+        models=["llama", "qwen3"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
     )

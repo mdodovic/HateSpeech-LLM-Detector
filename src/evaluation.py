@@ -72,16 +72,6 @@ class HateSpeechEvaluator:
         """Generate confusion matrix"""
         return confusion_matrix(y_true, y_pred)
 
-    def compare_models(self, results_dict: Dict[str, Dict]):
-        """Compare results across multiple models"""
-        rows = []
-        for model_name, res in results_dict.items():
-            row = {"model": model_name}
-            row.update({f"binary_{k}": v for k, v in res.get("binary_metrics", {}).items()})
-            row.update({f"category_{k}": v for k, v in res.get("category_metrics", {}).items()})
-            rows.append(row)
-        self.df = pd.DataFrame(rows)
-
     def save_results(self, model_name: str, res:Dict):
         """Save evaluation results for a model"""
         self.results.append({
@@ -124,9 +114,28 @@ class HateSpeechEvaluator:
         
         self.print_single_model_results(model_name)
 
-    def save_results_to_excel(self, output_path: str = None, verbose: bool = False):
+    def to_dataframe(self) -> pd.DataFrame:
+        """Flatten self.results into a single tidy DataFrame."""
+        rows = []
+        for item in self.results:
+            model = item.get("model")
+            res = item.get("results", {})
+            row = {"model": model}
+            # Flatten metrics: binary_metrics.*, category_metrics.*, subcategory_metrics.*
+            for scope_key, metrics in res.items():
+                if isinstance(metrics, dict):
+                    for k, v in metrics.items():
+                        row[f"{scope_key}.{k}"] = v
+            rows.append(row)
+        self.df = pd.DataFrame(rows)
+        return self.df
+
+    def save_results_to_excel(self, output_path: str = None, verbose: bool = False, sheet_name: str = None):
         """Save comparison results to Excel file"""
-        self.df.to_excel(output_path, index=False)
+        if not hasattr(self, 'df'):
+            self.to_dataframe()        
+        with pd.ExcelWriter(str(output_path), engine="openpyxl", mode="a", if_sheet_exists="new") as writer:
+            self.df.to_excel(writer, index=False, sheet_name=sheet_name)
         if verbose:
             print(self.df)
         print(f"\nRezultati su sačuvani u: {output_path}")
