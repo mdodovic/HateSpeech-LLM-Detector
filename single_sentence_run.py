@@ -236,6 +236,6 @@ def run(excel_path: str, models: List[str]) -> None:
 if __name__ == "__main__":
     # Jednostavan podrazumevani poziv: koristi modele iz models/models.json ili data/models.json
     run(
-        excel_path="data/hate_speech_labeled_samples_small.xlsx",
+        excel_path="data/single_sentence_hate_speech_labeled_samples_small.xlsx",
         models=["llama", "qwen3"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
     )

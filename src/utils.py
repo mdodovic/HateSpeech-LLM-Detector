@@ -92,7 +92,7 @@ def _normalize_record(text: str, category_value: Any, has_hate_value: Any = None
 
 
 def load_excel_dataset(filepath: str, mode = None) -> List[Dict[str, Any]]:
-    """Load dataset from an Excel file like data/hate_speech_labeled_samples.xlsx.
+    """Load dataset from an Excel file like data/single_sentence_hate_speech_labeled_samples.xlsx.
 
     New expected columns (robust to casing/localization):
     - 'text' (or 'Text'/'Tekst') for the sentence
@@ -315,6 +315,6 @@ def print_dataset_info(data: List[Dict[str, Any]]) -> None:
 
 
 if __name__ == "__main__":
-    path = "data/hate_speech_labeled_samples.xlsx"
+    path = "data/single_sentence_hate_speech_labeled_samples.xlsx"
     data = load_excel_dataset(path)
     print_dataset_info(data)
