@@ -166,7 +166,7 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
     }
 
 
-def run(excel_path: str, models: List[str]) -> None:
+def run(excel_path: str, models: List[str] = []) -> None:
     """Pokreni evaluaciju za više LLM-ova i prikaži metrike."""
     print("Učitavam dataset iz Excel fajla…")
     records = load_excel_dataset(excel_path)
@@ -237,5 +237,5 @@ if __name__ == "__main__":
     # Jednostavan podrazumevani poziv: koristi modele iz models/models.json ili data/models.json
     run(
         excel_path="data/single_sentence_hate_speech_labeled_samples_small.xlsx",
-        models=["llama", "qwen3"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
+        # models=["llama", "qwen3"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
     )
