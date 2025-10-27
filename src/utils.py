@@ -91,7 +91,7 @@ def _normalize_record(text: str, category_value: Any, has_hate_value: Any = None
     }
 
 
-def load_excel_dataset(filepath: str) -> List[Dict[str, Any]]:
+def load_excel_dataset(filepath: str, mode = None) -> List[Dict[str, Any]]:
     """Load dataset from an Excel file like data/hate_speech_labeled_samples.xlsx.
 
     New expected columns (robust to casing/localization):
@@ -102,6 +102,7 @@ def load_excel_dataset(filepath: str) -> List[Dict[str, Any]]:
 
     Returns list of dicts: {text: str, has_hate_speech: bool, category: int, subcategory: str}
     """
+
     df = pd.read_excel(filepath)
     records: List[Dict[str, Any]] = []
 
@@ -123,7 +124,66 @@ def load_excel_dataset(filepath: str) -> List[Dict[str, Any]]:
     if not records:
         print("Dataset je prazan ili nije moguće učitati podatke.")
         exit(1)
-    
+
+    return records
+
+
+def load_excel_full_text_dataset(filepath: str) -> List[Dict]:
+    """Load full-text dataset where the 'Category' cell may contain comma-separated codes.
+
+    Example row (as in the screenshot):
+        Text: <long text>
+        Category: "0, 0, 1c, 6a, 0, 0, 0"
+
+    Returns a list of dict entries with both a primary category/subcategory for
+    compatibility with current evaluators and the full list for future use:
+        {
+            'text': str,
+            'has_hate_speech': bool,           # True if any parsed category != 0
+            'category': int,                   # primary non-zero category or 0
+            'subcategory': str,                # primary subcategory (letter) or ''
+            'all_codes': List[str],            # raw codes like ["0","1c","6a"]
+            'all_categories': List[int],       # top-level ints like [0,1,6]
+            'all_subcategories': List[str],    # letters like ["","c","a"]
+        }
+    """
+    df = pd.read_excel(filepath)
+    records: List[Dict] = []
+
+    for _, row in df.iterrows():
+        row_dict = dict(row)
+        text = str(row_dict.get("Text") or row_dict.get("text") or "").strip()
+        if not text:
+            continue
+
+        cat_cell = row_dict.get("Category") or row_dict.get("category") or ""
+        # Split by comma/semicolon, keep order
+        raw_codes = [c.strip() for c in re.split(r"[;,]", str(cat_cell)) if str(c).strip() != ""]
+        parsed = [parse_category_and_subcategory(code) for code in raw_codes] if raw_codes else []
+
+        all_categories = [int(p.get("category", 0)) for p in parsed]
+        all_subcats = [str(p.get("subcategory", "") or "") for p in parsed]
+        has_hate = any(c != 0 for c in all_categories)
+
+        # Choose primary non-zero as ground truth for compatibility with existing pipeline
+        primary_idx = next((i for i, c in enumerate(all_categories) if c != 0), None)
+        if primary_idx is not None:
+            primary_cat = int(all_categories[primary_idx])
+            primary_sub = all_subcats[primary_idx]
+        else:
+            primary_cat = 0
+            primary_sub = ""
+
+        records.append({
+            "text": text,
+            "has_hate_speech": has_hate,
+            "category": primary_cat,
+            "subcategory": primary_sub,
+            "all_codes": raw_codes,
+            "all_categories": all_categories,
+            "all_subcategories": all_subcats,
+        })
+
     return records
 
 

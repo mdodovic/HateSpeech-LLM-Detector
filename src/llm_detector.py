@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import requests
 from typing import List, Dict, Tuple
+from src.utils import parse_category_and_subcategory
 
 
 class LLMDetector:
@@ -255,49 +256,133 @@ class LLMDetector:
             "raw": response,
         }
 
-    # def extract_hate_speech_sentences(self, text: str) -> Tuple[List[str], int, int]:
-    #     """
-    #     Zadatak 2: Izdvoj rečenice koje sadrže govor mržnje i izračunaj pokrivenost tokena
-    #     Vraća: (rečenice, pokriveni_tokeni, ukupno_tokena)
-    #     """
-    #     prompt = (
-    #         "U datom tekstu identifikuj i izdvoj ISKLJUČIVO rečenice koje sadrže govor mržnje.\n"
-    #         "Svaku rečenicu navedi u posebnom redu. Ako govor mržnje nije prisutan, odgovori sa \"NEMA\".\n\n"
-    #         f'Tekst: "{text}"\n\n'
-    #         "Rečenice sa govorom mržnje:"
-    #     )
+    def extract_hate_speech_sentences(self, text: str, categories_prompt: str) -> Dict:
+        """
+        Zadatak 2: Izdvoji rečenice koje sadrže govor mržnje i klasifikuj svaku.
 
-    #     response = self.generate_response(prompt, max_new_tokens=300, temperature=self.default_temperature)
-        
-    #     normalized = response.strip().lower()
-    #     if normalized == "nema" or normalized.startswith("nema"):
-    #         hate_sentences: List[str] = []
-    #     else:
-    #         raw_lines = re.split(r"[\n;]+", response)
-    #         candidates = [ln.strip(" -•\t") for ln in raw_lines if ln.strip()]
-    #         hate_sentences = [s for s in candidates if len(s) > 3]
+        Format odgovora modela (po liniji), prema 'classify_full.txt':
+        (rečenica; kategorija; podkategorija)
 
-    #     total_tokens = self._token_count(text)
-    #     tokens_covered = self._token_count(" ".join(hate_sentences)) if hate_sentences else 0
-    #     return hate_sentences, tokens_covered, total_tokens
+        Vraća dict:
+        {
+          'has_hate_speech': bool,
+          'extractions': List[{ 'sentence': str, 'category': int, 'subcategory': str }],
+          'hate_sentences': List[str],
+          'tokens_covered': int,
+          'total_tokens': int,
+          'raw': str,
+        }
+        """
+        prompt_path = self.prompts_dir / "classify_full.txt"
+        with open(prompt_path, encoding="utf-8") as f:
+            prompt = f.read()
 
-    # def analyze_text_complete(self, text: str, categories_prompt: str) -> Dict:
-    #     """
-    #     Perform all three tasks on a single text
-    #     Returns: result dict
-    #     """
-    #     has_hate = self.detect_hate_speech_binary(text)
-    #     binary_explanation = ""
-    #     hate_sentences, tokens_covered, total_tokens = self.extract_hate_speech_sentences(text)
-    #     category, category_subcategory = self.categorize_hate_speech(text, categories_prompt)
-    #     return {
-    #         "text": text,
-    #         "has_hate_speech": has_hate,
-    #         "binary_explanation": binary_explanation,
-    #         "hate_sentences": hate_sentences,
-    #         "tokens_covered": tokens_covered,
-    #         "total_tokens": total_tokens,
-    #         "token_coverage_ratio": (tokens_covered / total_tokens) if total_tokens > 0 else 0.0,
-    #         "category": category,
-    #         "category_subcategory": category_subcategory,
-    #     }
+        prompt = prompt.format(text=text, categories_prompt=categories_prompt)
+        response = self.generate_response(prompt, max_new_tokens=self.max_tokens, temperature=self.default_temperature)
+
+        extractions: List[Dict[str, str]] = []
+        hate_sentences: List[str] = []
+
+        # Some models might return 'NEMA' or empty if nothing found
+        if response.strip().lower().startswith("nema"):
+            total_tokens = self._token_count(text)
+            return {
+                "has_hate_speech": False,
+                "extractions": [],
+                "hate_sentences": [],
+                "tokens_covered": 0,
+                "total_tokens": total_tokens,
+                "raw": response,
+            }
+
+        # Parse each non-empty line, expected pattern: (sentence; category; subcategory)
+        for raw_line in response.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            # Remove surrounding parentheses if present
+            if line.startswith("(") and line.endswith(")"):
+                line = line[1:-1].strip()
+            # Split by ';' into at most 3 parts
+            parts = [p.strip().strip('"\'') for p in line.split(";")]
+            if len(parts) < 2:
+                # Not a valid extraction line, keep going
+                continue
+            sentence = parts[0]
+            cat_part = parts[1] if len(parts) >= 2 else ""
+            sub_part = parts[2] if len(parts) >= 3 else ""
+
+            # Sometimes models might put '3b' in category and leave sub blank
+            combined = cat_part if cat_part else sub_part
+            parsed = parse_category_and_subcategory(combined)
+            cat = int(parsed.get("category", 0))
+            sub = parsed.get("subcategory", "")
+
+            # If category was clean integer and sub_part contains a code, prefer explicit sub
+            m_sub = re.match(r"^([0-7])\s*([a-z])$", sub_part.strip().lower())
+            if m_sub:
+                sub = m_sub.group(2)
+
+            extractions.append({"sentence": sentence, "category": cat, "subcategory": sub})
+            if cat != 0:
+                hate_sentences.append(sentence)
+
+        total_tokens = self._token_count(text)
+        tokens_covered = self._token_count(" ".join(hate_sentences)) if hate_sentences else 0
+
+        return {
+            "has_hate_speech": any(e.get("category", 0) != 0 for e in extractions),
+            "extractions": extractions,
+            "hate_sentences": hate_sentences,
+            "tokens_covered": tokens_covered,
+            "total_tokens": total_tokens,
+            "raw": response,
+        }
+
+    def classify_all_sentences(self, text: str, categories_prompt: str) -> Dict:
+        """
+        Podeli ceo tekst na rečenice i dodeli kategoriju svakoj.
+        Koristi prompt 'classify_full_all.txt', format linije: (rečenica; kategorija; podkategorija)
+
+        Vraća dict:
+        {
+          'sentences': List[{ 'sentence': str, 'category': int, 'subcategory': str }],
+          'raw': str
+        }
+        """
+        prompt_path = self.prompts_dir / "classify_full_all.txt"
+        with open(prompt_path, encoding="utf-8") as f:
+            prompt = f.read()
+
+        prompt = prompt.format(text=text, categories_prompt=categories_prompt)
+        response = self.generate_response(prompt, max_new_tokens=self.max_tokens, temperature=self.default_temperature)
+
+        results: List[Dict[str, str]] = []
+        for raw_line in response.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("(") and line.endswith(")"):
+                line = line[1:-1].strip()
+            parts = [p.strip().strip('"\'') for p in line.split(";")]
+            if len(parts) < 2:
+                continue
+            sentence = parts[0]
+            cat_part = (parts[1] if len(parts) >= 2 else "").lower()
+            sub_part = (parts[2] if len(parts) >= 3 else "").lower()
+
+            # cat_part could be '0' or '3' or '3b'. Prefer combined parse
+            combined = cat_part if cat_part else sub_part
+            parsed = parse_category_and_subcategory(combined)
+            cat = int(parsed.get("category", 0))
+            sub = parsed.get("subcategory", "")
+            # If explicit sub given like '3b' or single letter, prefer it
+            m_sub = re.match(r"^([0-7])\s*([a-z])$", sub_part)
+            if m_sub:
+                sub = m_sub.group(2)
+            elif re.match(r"^[a-z]$", sub_part):
+                sub = sub_part
+
+            results.append({"sentence": sentence, "category": cat, "subcategory": sub})
+
+        return {"sentences": results, "raw": response}

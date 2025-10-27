@@ -1,0 +1,11 @@
+{categories_prompt}
+
+Podeli dati tekst na rečenice. Nemoj menjati, preformulisati ili kombinovati rečenice.
+Za SVAKU rečenicu dodeli kategoriju (0–7). Ako rečenica nema govor mržnje, upiši 0.
+Ako kategorija ima podkategoriju, navedi i podkategoriju (slovo). Ako nema ili je kategorija 0, ostavi prazno.
+
+Odgovori tako što ćeš svaku rečenicu navesti u POSEBNOM REDU, tačno u formatu:
+(rečenica; kategorija; podkategorija)
+
+Tekst: {text}
+Rečenice:
