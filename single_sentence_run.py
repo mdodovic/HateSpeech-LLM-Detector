@@ -10,6 +10,7 @@ Task 2 is extraction of the hate speech sentences extraction from long texts and
 """
 
 import argparse
+import time
 import re
 from sklearn.metrics import accuracy_score
 import json
@@ -38,13 +39,22 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
     y_true_sub: List[str] = []
     y_pred_sub: List[str] = []
 
+    # Timing accumulators (LLM-only)
+    total_detect_s = 0.0
+    total_categorize_s = 0.0
+    n_detect_calls = 0
+    n_categorize_calls = 0
+
     for idx, rec in enumerate(records, start=1):
         text = (rec.get("text") or "").strip()
         if not text:
             continue
 
         # Zadatak 1: Binarna detekcija
+        t0 = time.perf_counter()
         has_hate = detector.detect_hate_speech_binary(text)
+        total_detect_s += (time.perf_counter() - t0)
+        n_detect_calls += 1
         gt_has_hate = bool(rec.get("has_hate_speech", False))
         gt_cat = int(rec.get("category", 0))
         gt_subcat = str(rec.get("subcategory", ""))
@@ -58,7 +68,10 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
 
         # Zadatak 3: Kategorizacija 0–7
         if has_hate:
+            t1 = time.perf_counter()
             pred_cat, pred_sub_cat = detector.categorize_hate_speech(text, categories_prompt)
+            total_categorize_s += (time.perf_counter() - t1)
+            n_categorize_calls += 1
             print()
 
             print(f"\tpredicted_category={pred_cat} {'  =  ' if pred_cat == gt_cat else '!='} ground_truth={gt_cat}")
@@ -97,10 +110,28 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
     print(f"Category accuracy:    {category_metrics['accuracy']:.4f} ({len(y_true_cat)} samples)")
     print(f"Subcategory accuracy: {subcategory_metrics['accuracy']:.4f} ({len(y_true_sub)} samples)")
 
+    # Vreme (samo LLM pozivi)
+    avg_detect_ms = (total_detect_s / n_detect_calls * 1000.0) if n_detect_calls else 0.0
+    avg_categorize_ms = (total_categorize_s / n_categorize_calls * 1000.0) if n_categorize_calls else 0.0
+    total_llm_s = total_detect_s + total_categorize_s
+    print("\n--- Vremenski podaci (LLM) — dva prompta ---")
+    print(f"detect_hate_speech_binary: total={total_detect_s:.3f}s, calls={n_detect_calls}, avg={avg_detect_ms:.1f} ms/call")
+    print(f"categorize_hate_speech:    total={total_categorize_s:.3f}s, calls={n_categorize_calls}, avg={avg_categorize_ms:.1f} ms/call")
+    print(f"LLM total (detect+categorize): {total_llm_s:.3f}s")
+
     return {
         "binary_metrics": binary_metrics,
         "category_metrics": category_metrics,
         "subcategory_metrics": subcategory_metrics,
+        "timing": {
+            "detect_total_s": total_detect_s,
+            "detect_calls": n_detect_calls,
+            "detect_avg_ms": avg_detect_ms,
+            "categorize_total_s": total_categorize_s,
+            "categorize_calls": n_categorize_calls,
+            "categorize_avg_ms": avg_categorize_ms,
+            "llm_total_s": total_llm_s,
+        },
     }
 
 
@@ -118,6 +149,10 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
     y_true_sub: List[str] = []
     y_pred_sub: List[str] = []
 
+    # Timing accumulators (LLM-only)
+    total_oneprompt_s = 0.0
+    n_oneprompt_calls = 0
+
     for idx, rec in enumerate(records, start=1):
         text = (rec.get("text") or "").strip()
         if not text:
@@ -126,7 +161,10 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
         gt_cat = int(rec.get("category", 0))
         gt_subcat = str(rec.get("subcategory", ""))
 
+        t0 = time.perf_counter()
         result = detector.detect_and_categorize(text, categories_prompt)
+        total_oneprompt_s += (time.perf_counter() - t0)
+        n_oneprompt_calls += 1
         has_hate = bool(result.get("has_hate_speech", False))
         pred_cat = int(result.get("category", 0))
         pred_sub = str(result.get("subcategory", ""))
@@ -159,10 +197,20 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
     print(f"Category accuracy:    {category_metrics['accuracy']:.4f} ({len(y_true_cat)} samples)")
     print(f"Subcategory accuracy: {subcategory_metrics['accuracy']:.4f} ({len(y_true_sub)} samples)")
 
+    # Vreme (samo LLM pozivi)
+    avg_oneprompt_ms = (total_oneprompt_s / n_oneprompt_calls * 1000.0) if n_oneprompt_calls else 0.0
+    print("\n--- Vremenski podaci (LLM) — jedan prompt ---")
+    print(f"detect_and_categorize: total={total_oneprompt_s:.3f}s, calls={n_oneprompt_calls}, avg={avg_oneprompt_ms:.1f} ms/call")
+
     return {
         "binary_metrics": binary_metrics,
         "category_metrics": category_metrics,
-        "subcategory_metrics": subcategory_metrics
+        "subcategory_metrics": subcategory_metrics,
+        "timing": {
+            "oneprompt_total_s": total_oneprompt_s,
+            "oneprompt_calls": n_oneprompt_calls,
+            "oneprompt_avg_ms": avg_oneprompt_ms,
+        }
     }
 
 
@@ -190,10 +238,21 @@ def run(excel_path: str, models: List[str] = []) -> None:
         print("\n>> Rezime metrika (dva prompta)")
         two_prompt_evaluator.save_results(tag, res_two)
         two_prompt_evaluator.print_results(tag)
+        # Dodatno: prikaži i vremenske podatke (LLM) po modelu
+        t2 = (res_two or {}).get("timing", {})
+        if t2:
+            print("-- Vremenski podaci (LLM) — dva prompta")
+            print(f"detect_hate_speech_binary: total={t2.get('detect_total_s', 0.0):.3f}s, calls={t2.get('detect_calls', 0)}, avg={t2.get('detect_avg_ms', 0.0):.1f} ms/call")
+            print(f"categorize_hate_speech:    total={t2.get('categorize_total_s', 0.0):.3f}s, calls={t2.get('categorize_calls', 0)}, avg={t2.get('categorize_avg_ms', 0.0):.1f} ms/call")
+            print(f"LLM total (detect+categorize): {t2.get('llm_total_s', 0.0):.3f}s")
 
         print("\n>> Rezime metrika (jedan prompt)")
         one_prompt_evaluator.save_results(tag, res_one)
         one_prompt_evaluator.print_results(tag)
+        t1 = (res_one or {}).get("timing", {})
+        if t1:
+            print("-- Vremenski podaci (LLM) — jedan prompt")
+            print(f"detect_and_categorize: total={t1.get('oneprompt_total_s', 0.0):.3f}s, calls={t1.get('oneprompt_calls', 0)}, avg={t1.get('oneprompt_avg_ms', 0.0):.1f} ms/call")
 
         # print("\nKonfuziona matrica - binarna:")
         # print(res["confusion_matrix_binary"])
@@ -211,9 +270,6 @@ def run(excel_path: str, models: List[str] = []) -> None:
     print("#" * 70)
     # Uporedna tabela samo za kategoriju/subkategoriju između pristupa
     print("\n=== Poređenje pristupa (category/subcategory accuracy) ===")
-    print(one_prompt_evaluator.results)
-    print("----------------------------")
-    print(two_prompt_evaluator.results)
     for ev1 in one_prompt_evaluator.results:
         model = ev1.get("model")
         ev2 = next((e for e in two_prompt_evaluator.results if e.get("model") == model), None)
