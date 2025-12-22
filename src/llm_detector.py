@@ -164,10 +164,11 @@ class LLMDetector:
             contains_hate = True
         return contains_hate
 
-    def categorize_hate_speech(self, text: str, categories_prompt: str) -> Tuple[int, str]:
+    def categorize_hate_speech(self, text: str, categories_prompt: str) -> List[str]:
         """
-        Zadatak 3: Klasifikuj govor mržnje u unapred definisane kategorije (0–7)
-        Vraća: (kategorija, podkategorija_kod)
+        Zadatak 3: Klasifikuj govor mržnje u unapred definisane kategorije, dozvoljeno više.
+
+        Vraća listu kodova poput ["4a", "6a"] ili ["2"] (ako nema podkategorije).
         """
         prompt_path = self.prompts_dir / "classify.txt"
         with open(prompt_path, encoding="utf-8") as f:
@@ -176,31 +177,42 @@ class LLMDetector:
         prompt = prompt.format(text=text, categories_prompt=categories_prompt)
 
         response = self.generate_response(prompt, max_new_tokens=self.max_tokens, temperature=self.default_temperature)
-        # Ekstrakcija kategorije i podkategorije iz odgovora
-        category = 0
-        subcategory = ""
+        # Prvo probaj eksplicitnu liniju 'Kategorije: <lista>'
+        codes: List[str] = []
+        m_line = re.search(r"(?im)^\s*kategorije\s*:\s*(.+)$", response)
+        if m_line:
+            raw = m_line.group(1).strip()
+            parts = [p.strip() for p in raw.split(",") if p is not None]
+            for p in parts:
+                p = p.replace(" ", "")
+                if re.match(r"^[0-7][a-z]?$", p, flags=re.IGNORECASE):
+                    codes.append(p.lower())
 
-        # Pokušaj da pročitaš striktno iz polja 'Kategorija:' i 'Podkategorija:' ako postoje
-        m_cat = re.search(r"(?i)kategorija\s*:\s*([0-7])\b", response)
-        if m_cat:
-            category = int(m_cat.group(1))
-        else:
-            # Fallback: uzmi prvi broj 0-7 gde god da se pojavi
-            m = re.search(r"\b([0-7])\b", response)
-            if m:
-                category = int(m.group(1))
+        # Ako linija nije data ili prazna, pokušaj regex-om svuda
+        if not codes:
+            # Ekstrakcija svih kodova kategorija iz odgovora
+            # Podržava forme: "4a,6a", "Kategorije: 4a, 6a", "4, 6a" itd.
+            codes = re.findall(r"\b([0-7][a-z]?)\b", response, flags=re.IGNORECASE)
+            codes = [c.lower() for c in codes]
 
-        # Podkategorija: preferiraj eksplicitno polje, npr. '3b'
-        m_sub = re.search(r"(?i)podkategorija\s*:\s*([0-7][a-z])\b", response)
-        if m_sub:
-            subcategory = m_sub.group(1).lower()
-        else:
-            # Fallback: traži bilo koji kod poput '3b' negde u odgovoru
-            m2 = re.search(r"\b([0-7][a-z])\b", response, flags=re.IGNORECASE)
-            if m2:
-                subcategory = m2.group(1).lower()
+        # Ako ništa nije pronađeno, pokušaj da parsiraš polja Kategorija/Podkategorija
+        if not codes:
+            m_cat = re.search(r"(?i)kategorija\s*:\s*([0-7])\b", response)
+            m_sub = re.search(r"(?i)podkategorija\s*:\s*([0-7][a-z])\b", response)
+            if m_sub:
+                codes = [m_sub.group(1).lower()]        
+            elif m_cat:
+                codes = [m_cat.group(1)]
 
-        return category, subcategory
+        # Ukloni duplikate uz očuvanje redosleda
+        seen = set()
+        unique_codes: List[str] = []
+        for code in codes:
+            if code not in seen:
+                seen.add(code)
+                unique_codes.append(code)
+
+        return unique_codes
     
     def detect_and_categorize(self, text: str, categories_prompt: str) -> Dict:
         """Jedan poziv koji detektuje govor mržnje i kategorizuje ga.
@@ -229,113 +241,72 @@ class LLMDetector:
         if m_hs:
             has_hate = m_hs.group(1).strip().lower() == "da"
 
-        # Kategorija i podkategorija
-        category = 0
-        m_cat = re.search(r"(?i)kategorija\s*:\s*([0-7])\b", response)
-        if m_cat:
-            category = int(m_cat.group(1))
-        subcategory = ""
-        m_sub = re.search(r"(?i)podkategorija\s*:\s*([0-7][a-z])\b", response)
-        if m_sub:
-            subcategory = m_sub.group(1).lower()
+        # Kategorije (više vrednosti moguće) – prvo pokušaj eksplicitnu liniju 'Kategorije:'
+        all_codes: List[str] = []
+        m_line = re.search(r"(?im)^\s*kategorije\s*:\s*(.+)$", response)
+        if m_line:
+            raw_list = m_line.group(1).strip()
+            # Ako model upiše samo '0' ili ostavi prazno
+            if raw_list:
+                parts = [p.strip() for p in raw_list.split(',') if p.strip()]
+                for p in parts:
+                    if re.match(r"^[0-7][a-z]?$", p, flags=re.IGNORECASE):
+                        all_codes.append(p.lower())
+            else:
+                all_codes = []
 
-        # Fallbacks if lines not matched
-        if not m_cat:
-            m = re.search(r"\b([0-7])\b", response)
-            if m:
-                category = int(m.group(1))
-        if not m_sub:
-            m2 = re.search(r"\b([0-7][a-z])\b", response, flags=re.IGNORECASE)
-            if m2:
-                subcategory = m2.group(1).lower()
+        # Fallback: ako nije pronađena linija ili prazna, primeni regex globalno
+        if not all_codes:
+            regex_found = re.findall(r"\b([0-7][a-z]?)\b", response, flags=re.IGNORECASE)
+            all_codes = [c.lower() for c in regex_found]
+            # Ako ni to ne vrati ništa, pokušaj starim poljima 'Kategorija:' / 'Podkategorija:'
+            if not all_codes:
+                m_cat = re.search(r"(?i)kategorija\s*:\s*([0-7])\b", response)
+                m_sub = re.search(r"(?i)podkategorija\s*:\s*([0-7][a-z])\b", response)
+                if m_sub:
+                    all_codes = [m_sub.group(1).lower()]
+                elif m_cat:
+                    all_codes = [m_cat.group(1)]
+
+        # Normalizuj situacije: ako NE i nema kodova -> stavi ['0']; ako ima drugih kodova ukloni 0
+        if not has_hate:
+            if not all_codes or '0' not in all_codes:
+                all_codes = ['0']
+        else:
+            if len(all_codes) > 1 and '0' in all_codes:
+                all_codes = [c for c in all_codes if c != '0']
+
+        # Očisti duplikate, očuvaj redosled
+        seen = set()
+        codes: List[str] = []
+        for code in all_codes:
+            if code not in seen:
+                seen.add(code)
+                codes.append(code)
+
+        # Primarna kategorija za kompatibilnost (prva različita od 0 ako postoji)
+        primary_cat = 0
+        primary_sub = ""
+        if codes:
+            from src.utils import parse_category_and_subcategory as _parse
+            for c in codes:
+                parsed = _parse(c)
+                if int(parsed.get("category", 0)) != 0:
+                    primary_cat = int(parsed.get("category", 0))
+                    primary_sub = str(parsed.get("subcategory", ""))
+                    break
+            if primary_cat == 0:
+                # sve su nule ili ništa korisno
+                parsed = _parse(codes[0])
+                primary_cat = int(parsed.get("category", 0))
+                primary_sub = str(parsed.get("subcategory", ""))
 
         return {
             "has_hate_speech": has_hate,
-            "category": int(category),
-            "subcategory": subcategory,
-            "raw": response,
-        }
-
-    def extract_hate_speech_sentences(self, text: str, categories_prompt: str) -> Dict:
-        """
-        Zadatak 2: Izdvoji rečenice koje sadrže govor mržnje i klasifikuj svaku.
-
-        Format odgovora modela (po liniji), prema 'classify_full.txt':
-        (rečenica; kategorija; podkategorija)
-
-        Vraća dict:
-        {
-          'has_hate_speech': bool,
-          'extractions': List[{ 'sentence': str, 'category': int, 'subcategory': str }],
-          'hate_sentences': List[str],
-          'tokens_covered': int,
-          'total_tokens': int,
-          'raw': str,
-        }
-        """
-        prompt_path = self.prompts_dir / "classify_full.txt"
-        with open(prompt_path, encoding="utf-8") as f:
-            prompt = f.read()
-
-        prompt = prompt.format(text=text, categories_prompt=categories_prompt)
-        response = self.generate_response(prompt, max_new_tokens=self.max_tokens, temperature=self.default_temperature)
-
-        extractions: List[Dict[str, str]] = []
-        hate_sentences: List[str] = []
-
-        # Some models might return 'NEMA' or empty if nothing found
-        if response.strip().lower().startswith("nema"):
-            total_tokens = self._token_count(text)
-            return {
-                "has_hate_speech": False,
-                "extractions": [],
-                "hate_sentences": [],
-                "tokens_covered": 0,
-                "total_tokens": total_tokens,
-                "raw": response,
-            }
-
-        # Parse each non-empty line, expected pattern: (sentence; category; subcategory)
-        for raw_line in response.splitlines():
-            line = raw_line.strip()
-            if not line:
-                continue
-            # Remove surrounding parentheses if present
-            if line.startswith("(") and line.endswith(")"):
-                line = line[1:-1].strip()
-            # Split by ';' into at most 3 parts
-            parts = [p.strip().strip('"\'') for p in line.split(";")]
-            if len(parts) < 2:
-                # Not a valid extraction line, keep going
-                continue
-            sentence = parts[0]
-            cat_part = parts[1] if len(parts) >= 2 else ""
-            sub_part = parts[2] if len(parts) >= 3 else ""
-
-            # Sometimes models might put '3b' in category and leave sub blank
-            combined = cat_part if cat_part else sub_part
-            parsed = parse_category_and_subcategory(combined)
-            cat = int(parsed.get("category", 0))
-            sub = parsed.get("subcategory", "")
-
-            # If category was clean integer and sub_part contains a code, prefer explicit sub
-            m_sub = re.match(r"^([0-7])\s*([a-z])$", sub_part.strip().lower())
-            if m_sub:
-                sub = m_sub.group(2)
-
-            extractions.append({"sentence": sentence, "category": cat, "subcategory": sub})
-            if cat != 0:
-                hate_sentences.append(sentence)
-
-        total_tokens = self._token_count(text)
-        tokens_covered = self._token_count(" ".join(hate_sentences)) if hate_sentences else 0
-
-        return {
-            "has_hate_speech": any(e.get("category", 0) != 0 for e in extractions),
-            "extractions": extractions,
-            "hate_sentences": hate_sentences,
-            "tokens_covered": tokens_covered,
-            "total_tokens": total_tokens,
+            "category": int(primary_cat),
+            "subcategory": primary_sub,
+            "codes": codes,
+            "codes_str": ",".join(codes) if codes else "",
             "raw": response,
         }
 

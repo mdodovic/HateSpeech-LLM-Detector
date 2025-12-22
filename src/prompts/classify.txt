@@ -1,7 +1,11 @@
 {categories_prompt}
 
-Analiziraj sledeći tekst i svrstaj ga u jednu od kategorija iznad.
-Odgovori brojem kategorije i podkategorijom ukoliko kategorija ima podkategoriju
-Tekst: {text}
-Kategorija:
-Podkategorija:
+Analiziraj sledeći tekst i svrstaj ga u jednu ili više kategorija iznad.
+Odgovori isključivo nizom kodova (bez dodatnog teksta), gde je svaki kod broj kategorije 0–7 uz opcioni slovni sufiks podkategorije (npr. 4a, 6a, 2).
+Ako tekst pripada više kategorija, kodove obavezno odvoji zarezom bez razmaka: 4a,6a,2.
+Ako neka kategorija nema podkategoriju, navedi samo broj (npr. 2).
+
+Tekst:
+{text}
+
+Kategorije:

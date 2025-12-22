@@ -1,13 +1,21 @@
 {categories_prompt}
 
-Analiziraj sledeći tekst i odgovori ISKLJUČIVO u sledećem formatu (tačno tri linije):
-GovorMržnje: DA ili NE
-Kategorija: [0-7]
-Podkategorija: [kod potkategorije npr. 3b ili prazno ako nema]
+Analiziraj sledeći tekst. Odgovori ISKLJUČIVO sa TAČNO DVE linije (bez dodatnih komentara, objašnjenja ili uvodnog teksta).
 
-Tekst: {text}
+Prva linija:
+GovorMržnje: DA ili NE
+• Napiši DA ako tekst sadrži bilo koji oblik govora mržnje prema navedenim (pod)kategorijama.
+• Napiši NE ako ne sadrži govor mržnje.
+
+Druga linija:
+Kategorije: lista kodova odvojenih zarezom BEZ razmaka (svaki kod je broj 0–7 uz opcioni slovni sufiks podkategorije, npr. 4a,6a,2).
+• Ako je odgovor NE, obavezno napiši samo 0 (Kategorije: 0).
+• Ako postoji više različitih kategorija ili podkategorija, navedi sve: npr. Kategorije: 1a,3b,6a.
+• Ne dodaj nikakav dodatni tekst, objašnjenje ili reči izvan formata.
+
+Tekst:
+{text}
 
 Odgovor:
 GovorMržnje:
-Kategorija:
-Podkategorija:
+Kategorije:

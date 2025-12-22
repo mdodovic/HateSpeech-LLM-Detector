@@ -153,3 +153,39 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 ## Contributing
 
 Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
+
+## Ensemble Majority Voting (Ansambl)
+
+The script `single_sentence_run_ansamble.py` now supports an ensemble mode that queries all models defined in `models/models.json` and produces a majority-vote prediction.
+
+Voting rules:
+- `has_hate_speech`: majority True/False across models.
+- `category`: majority among non-zero categories from models that predicted hate; ties → lowest category id.
+- `subcategory`: majority letter among models that predicted the chosen category; ignores empty; ties → alphabetical.
+- If majority is no hate → category=0, subcategory="".
+
+### Run Only Ensemble
+```bash
+python single_sentence_run_ansamble.py --skip-individual --ensemble \
+  --excel data/single_sentence_hate_speech_labeled_samples_small.xlsx
+```
+
+### Run Individual Evaluations + Ensemble
+```bash
+python single_sentence_run_ansamble.py --ensemble \
+  --excel data/single_sentence_hate_speech_labeled_samples_small.xlsx
+```
+
+### Restrict to a Subset of Models
+```bash
+python single_sentence_run_ansamble.py --ensemble --models llama,qwen3
+```
+
+### Use Two-Prompt Mode Inside Ensemble (slower)
+```bash
+python single_sentence_run_ansamble.py --ensemble --ensemble-one-prompt=false
+```
+(`--ensemble-one-prompt` omitted means one-prompt mode is used.)
+
+Results are appended to `results/single_sentence_comparison.xlsx` under sheet name `Ensemble`.
+

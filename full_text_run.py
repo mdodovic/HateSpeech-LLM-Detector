@@ -10,6 +10,7 @@ Task 2 is extraction of the hate speech sentences extraction from long texts and
 """
 
 import re
+import time
 import pandas as pd
 from sklearn.metrics import accuracy_score
 from pathlib import Path
@@ -21,115 +22,100 @@ from src.utils import load_excel_dataset, build_model_tags, parse_category_and_s
 from src.evaluation import HateSpeechEvaluator
 
 def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) -> Dict:
-    """Evaluacija koristeći jedan kombinovani prompt (detekcija + kategorija)."""
+    """Evaluacija koristeći JEDAN prompt (classify_full_all) i merenje po rečenici."""
     print(f"Uzoraka za obradu: {len(records)}")
     print("Inicijalizujem LLM detektor…")
     detector = LLMDetector(model_tag)
     categories_prompt = get_category_prompt()
 
-    y_true_bin: List[bool] = []
-    y_pred_bin: List[bool] = []
-    y_true_cat: List[int] = []
-    y_pred_cat: List[int] = []
-    y_true_sub: List[str] = []
-    y_pred_sub: List[str] = []
-    # Extra metrics for full-text sheets with multiple GT categories
-    category_any_hits = 0
-    category_any_total = 0
-    subcategory_any_hits = 0
-    subcategory_any_total = 0
+    # Metričke liste po rečenici
+    y_true_bin_sent: List[bool] = []
+    y_pred_bin_sent: List[bool] = []
+    y_true_cat_sent: List[int] = []
+    y_pred_cat_sent: List[int] = []
+    y_true_sub_sent: List[str] = []
+    y_pred_sub_sent: List[str] = []
+
+    # Timing accumulators for LLM (classify_all_sentences)
+    total_classify_all_s = 0.0
+    n_classify_all_calls = 0
 
     for idx, rec in enumerate(records, start=1):
         text = (rec.get("text") or "").strip()
         if not text:
             continue
-        gt_has_hate = bool(rec.get("has_hate_speech", False))
-        gt_cat = int(rec.get("category", 0))
-        gt_subcat = str(rec.get("subcategory", ""))
         gt_all_cats = rec.get("all_categories") or []
         gt_all_subs = rec.get("all_subcategories") or []
 
-        # Classify ALL sentences and also extract hate-speech-only for coverage
+        # Jedini poziv modelu: klasifikuj SVE rečenice
+        t0 = time.perf_counter()
         all_cls = detector.classify_all_sentences(text, categories_prompt)
-        ext = detector.extract_hate_speech_sentences(text, categories_prompt)
-        has_hate = bool(ext.get("has_hate_speech", False))
-        # Primary predicted category/subcategory = first non-zero from all sentences
-        pred_cat = 0
-        pred_sub = ""
-        for e in all_cls.get("sentences", []):
-            if int(e.get("category", 0)) != 0:
-                pred_cat = int(e.get("category", 0))
-                pred_sub = str(e.get("subcategory", "") or "")
-                break
-
-        y_true_bin.append(gt_has_hate)
-        y_pred_bin.append(has_hate)
-        y_true_cat.append(gt_cat)
-        y_pred_cat.append(pred_cat)
-        # normalize predicted subcategory to a single letter when possible
-        m = re.match(r"^\s*([0-7])\s*([a-z])\s*$", pred_sub, flags=re.IGNORECASE)
-        pred_sub_letter = m.group(2).lower() if m else (pred_sub.lower() if re.match(r"^[a-z]$", pred_sub, flags=re.IGNORECASE) else "")
-        if gt_cat != 0:
-            y_true_sub.append(gt_subcat or "")
-            y_pred_sub.append(pred_sub_letter or "")
-
-        # Any-of-list metrics (use the full list if present)
-        # Define allowed category set: if GT has non-zero cats, use those; else {0}
-        nonzero_gt_cats = [c for c in gt_all_cats if isinstance(c, int) and c != 0]
-        allowed_cats = set(nonzero_gt_cats) if nonzero_gt_cats else {0}
-        if pred_cat in allowed_cats:
-            category_any_hits += 1
-        category_any_total += 1
-
-        # For subcategory: allowed pairs (cat, sub) for non-zero entries; if no hate then (0, "")
-        allowed_pairs = []
-        if nonzero_gt_cats:
-            for c, s in zip(gt_all_cats, gt_all_subs):
-                if isinstance(c, int) and c != 0:
-                    allowed_pairs.append((c, (s or "").lower()))
-        else:
-            allowed_pairs.append((0, ""))
-
-        if (pred_cat, pred_sub_letter or "") in allowed_pairs:
-            subcategory_any_hits += 1
-        subcategory_any_total += 1
+        total_classify_all_s += (time.perf_counter() - t0)
+        n_classify_all_calls += 1
+        pred_sentences = all_cls.get("sentences", []) if isinstance(all_cls, dict) else []
 
         short_text = (text[:120] + "…") if len(text) > 120 else text
         print(f"\n[{idx}] {short_text}")
-        print(f"\tone-prompt has_hate={has_hate} vs gt={gt_has_hate}")
-        print(f"\tone-prompt category={pred_cat} vs gt={gt_cat}")
-        if gt_cat != 0:
-            print(f"\tone-prompt subcat={pred_sub or ''} vs gt={gt_subcat or ''}")
-        # Print per-sentence classification for full transparency
-        if isinstance(all_cls, dict):
-            for s in all_cls.get("sentences", []):
-                print(f"\t[SENT] {s['sentence']} => cat={s['category']}, sub={s['subcategory'] or ''}")
 
-        # Token coverage reporting per record (optional):
-        if isinstance(ext, dict):
-            cov = ext.get("tokens_covered", 0)
-            tot = ext.get("total_tokens", 0)
-            ratio = (cov / tot) if tot else 0
-            print(f"\tToken coverage: {cov}/{tot} = {ratio:.2%}")
+        # Uskladi po indeksu: rečenica i-ti GT protiv i-te predikcije
+        n = min(len(pred_sentences), len(gt_all_cats))
+        if len(pred_sentences) != len(gt_all_cats):
+            print(f"\tUpozorenje: broj predikovanih rečenica ({len(pred_sentences)}) != broj GT oznaka ({len(gt_all_cats)}). Poređenje na prvih {n}.")
+
+        for i in range(n):
+            pred = pred_sentences[i]
+            gt_cat = int(gt_all_cats[i])
+            gt_sub = str(gt_all_subs[i] or "").lower()
+
+            # Predikcija
+            pred_cat = int(pred.get("category", 0))
+            raw_sub = str(pred.get("subcategory", "") or "").strip()
+            # Normalizuj subkategoriju na slovo (ako je 3b/"b")
+            parsed_sub = parse_category_and_subcategory(raw_sub)
+            pred_sub_letter = parsed_sub.get("subcategory", "").lower()
+            if not pred_sub_letter and re.match(r"^[a-z]$", raw_sub, flags=re.IGNORECASE):
+                pred_sub_letter = raw_sub.lower()
+
+            # Binary po rečenici: (gt_cat != 0) vs (pred_cat != 0)
+            y_true_bin_sent.append(gt_cat != 0)
+            y_pred_bin_sent.append(pred_cat != 0)
+            # Kategorija
+            y_true_cat_sent.append(gt_cat)
+            y_pred_cat_sent.append(pred_cat)
+            # Subkategorija samo kad je GT != 0
+            if gt_cat != 0:
+                y_true_sub_sent.append(gt_sub)
+                y_pred_sub_sent.append(pred_sub_letter or "")
+
+            # Štampa po rečenici
+            sent_text = pred.get("sentence", "")
+            print(f"\t[SENT {i+1}] {sent_text}")
+            print(f"\t         pred: cat={pred_cat}, sub={pred_sub_letter or ''}  |  gt: cat={gt_cat}, sub={gt_sub}")
 
     evaluator = HateSpeechEvaluator()
-    binary_metrics = evaluator.evaluate_binary_classification(y_true_bin, y_pred_bin)
-    category_metrics = evaluator.evaluate_multiclass_classification(y_true_cat, y_pred_cat)
-    subcategory_metrics = evaluator.evaluate_multiclass_classification(y_true_sub, y_pred_sub)
+    binary_metrics = evaluator.evaluate_binary_classification(y_true_bin_sent, y_pred_bin_sent)
+    category_metrics = evaluator.evaluate_multiclass_classification(y_true_cat_sent, y_pred_cat_sent)
+    subcategory_metrics = evaluator.evaluate_multiclass_classification(y_true_sub_sent, y_pred_sub_sent)
 
-    print("\n--- Jedan prompt: tačnost ---")
-    print(f"Binary accuracy:      {binary_metrics['accuracy']:.4f} ({len(y_true_bin)} samples)")
-    print(f"Category accuracy:    {category_metrics['accuracy']:.4f} ({len(y_true_cat)} samples)")
-    print(f"Subcategory accuracy: {subcategory_metrics['accuracy']:.4f} ({len(y_true_sub)} samples)")
-    if category_any_total > 0:
-        print(f"Category accuracy (any-of-list):    {category_any_hits / category_any_total:.4f} ({category_any_total} samples)")
-    if subcategory_any_total > 0:
-        print(f"Subcategory accuracy (any-of-list): {subcategory_any_hits / subcategory_any_total:.4f} ({subcategory_any_total} samples)")
+    print("\n--- Jedan prompt (po rečenici): tačnost ---")
+    print(f"Binary accuracy (sent):      {binary_metrics['accuracy']:.4f} ({len(y_true_bin_sent)} sentences)")
+    print(f"Category accuracy (sent):    {category_metrics['accuracy']:.4f} ({len(y_true_cat_sent)} sentences)")
+    print(f"Subcategory accuracy (sent): {subcategory_metrics['accuracy']:.4f} ({len(y_true_sub_sent)} sentences)")
+
+    # Vreme (samo LLM pozivi)
+    avg_classify_all_ms = (total_classify_all_s / n_classify_all_calls * 1000.0) if n_classify_all_calls else 0.0
+    print("\n--- Vremenski podaci (LLM) — classify_all_sentences ---")
+    print(f"classify_all_sentences: total={total_classify_all_s:.3f}s, calls={n_classify_all_calls}, avg={avg_classify_all_ms:.1f} ms/call")
 
     return {
         "binary_metrics": binary_metrics,
-        "category_metrics": {**category_metrics, "accuracy_any": (category_any_hits / category_any_total) if category_any_total else 0.0},
-        "subcategory_metrics": {**subcategory_metrics, "accuracy_any": (subcategory_any_hits / subcategory_any_total) if subcategory_any_total else 0.0}
+        "category_metrics": category_metrics,
+        "subcategory_metrics": subcategory_metrics,
+        "timing": {
+            "classify_all_total_s": total_classify_all_s,
+            "classify_all_calls": n_classify_all_calls,
+            "classify_all_avg_ms": avg_classify_all_ms,
+        },
     }
 
 
@@ -138,11 +124,10 @@ def run(excel_path: str, models: List[str]) -> None:
     print("Učitavam dataset iz Excel fajla…")
     # For full-text spreadsheets where 'Category' contains comma-separated codes,
     # use the dedicated loader. Fallback to generic loader if needed.
-    try:
-        records = load_excel_full_text_dataset(excel_path)
-    except Exception:
-        # Fallback to generic loader if anything goes wrong
-        records = load_excel_dataset(excel_path)
+    records = load_excel_full_text_dataset(excel_path)
+    # Ograniči na jedan pasus (za sada)
+    if len(records) > 1:
+        records = records[:1]
 
     # Izgradi mapiranje ime->tag (ako models nije zadan, koristi sve iz JSON-a)
     model_tags: Dict[str, str] = build_model_tags(models)
@@ -153,12 +138,16 @@ def run(excel_path: str, models: List[str]) -> None:
         print("\n" + "=" * 70)
         print(f"Evaluacija za model: {model_name} (tag: {tag})")
         print("=" * 70)
-        print("-- Jedan prompt (detekcija + kategorija) --")
+        print("-- Jedan prompt (classify_full_all; po rečenici) --")
         res_one = one_prompt_evaluation_model_on_records(tag, records)
 
         print("\n>> Rezime metrika (jedan prompt)")
         one_prompt_evaluator.save_results(tag, res_one)
-        one_prompt_evaluator.print_results(tag)
+        # Dodatno: prikaži i vremenske podatke po modelu
+        t = (res_one or {}).get("timing", {})
+        if t:
+            print("-- Vremenski podaci (LLM)")
+            print(f"classify_all_sentences: total={t.get('classify_all_total_s', 0.0):.3f}s, calls={t.get('classify_all_calls', 0)}, avg={t.get('classify_all_avg_ms', 0.0):.1f} ms/call")
 
         # print("\nKonfuziona matrica - binarna:")
         # print(res["confusion_matrix_binary"])
@@ -171,27 +160,19 @@ def run(excel_path: str, models: List[str]) -> None:
 
     # Uporedni pregled (tabela)
     print("\n" + "#" * 70)
-    print("Uporedni pregled metrika po modelima")
+    print("Uporedni pregled metrika po modelima (po rečenici)")
     print("#" * 70)
-    # Uporedna tabela samo za kategoriju/subkategoriju između pristupa
-    print("\n=== Poređenje pristupa (category/subcategory accuracy) ===")
-    print(one_prompt_evaluator.results)
-    print("----------------------------")
-    for ev1 in one_prompt_evaluator.results:
-        model = ev1.get("model")
-       
-
-        binary_metrics_1 = ev1["results"].get("binary_metrics", {})
-        category_metrics_1 = ev1["results"].get("category_metrics", {})
-        subcategory_metrics_1 = ev1["results"].get("subcategory_metrics", {})
-
-        print(f"Model: {ev1.get('model')}")
-        print(f"  One prompt   - binary acc: {binary_metrics_1.get('accuracy', 0):.4f}, cat acc: {category_metrics_1.get('accuracy', 0):.4f}, sub acc: {subcategory_metrics_1.get('accuracy', 0):.4f}")
+    for ev in one_prompt_evaluator.results:
+        bm = ev["results"].get("binary_metrics", {})
+        cm = ev["results"].get("category_metrics", {})
+        sm = ev["results"].get("subcategory_metrics", {})
+        print(f"Model: {ev.get('model')}")
+        print(f"  Jedan prompt - binary acc: {bm.get('accuracy', 0):.4f}, cat acc: {cm.get('accuracy', 0):.4f}, sub acc: {sm.get('accuracy', 0):.4f}")
 
 
 if __name__ == "__main__":
     # Jednostavan podrazumevani poziv: koristi modele iz models/models.json ili data/models.json
     run(
-        excel_path="data/text_hate_speech_labeled.xlsx",
+        excel_path="data/paragraph_hate_speech_labeled.xlsx",
         models=["llama", "qwen3"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
     )

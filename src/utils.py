@@ -118,8 +118,42 @@ def load_excel_dataset(filepath: str, mode = None) -> List[Dict[str, Any]]:
         )
         # Prefer explicit boolean if provided. Otherwise infer from category.
         has_hate_val = row_dict.get("has_hate_speech")
-        rec = _normalize_record(text, cat_code, has_hate_val if isinstance(has_hate_val, bool) else None)
-        records.append(rec)
+
+        # Support multiple ground-truth codes in a single cell (e.g., "4a,6a")
+        all_codes: List[str] = []
+        if isinstance(cat_code, str) and ("," in cat_code or ";" in cat_code):
+            raw_codes = [c.strip() for c in re.split(r"[;,]", cat_code) if str(c).strip() != ""]
+            parsed = [parse_category_and_subcategory(code) for code in raw_codes] if raw_codes else []
+            all_codes = raw_codes
+            all_categories = [int(p.get("category", 0)) for p in parsed]
+            all_subcats = [str(p.get("subcategory", "") or "") for p in parsed]
+            has_hate = any(c != 0 for c in all_categories)
+            primary_idx = next((i for i, c in enumerate(all_categories) if c != 0), None)
+            if primary_idx is not None:
+                primary_cat = int(all_categories[primary_idx])
+                primary_sub = all_subcats[primary_idx]
+            else:
+                primary_cat = int(all_categories[0]) if all_categories else 0
+                primary_sub = all_subcats[0] if all_subcats else ""
+            rec = {
+                "text": text,
+                "has_hate_speech": bool(has_hate_val) if isinstance(has_hate_val, bool) else has_hate,
+                "category": primary_cat,
+                "subcategory": primary_sub,
+                "all_codes": all_codes,
+                "all_categories": all_categories,
+                "all_subcategories": all_subcats,
+            }
+            records.append(rec)
+        else:
+            rec = _normalize_record(text, cat_code, has_hate_val if isinstance(has_hate_val, bool) else None)
+            # Add single-code view as 'all_*' for downstream consistency
+            parsed_single = parse_category_and_subcategory(cat_code)
+            code_str = str(parsed_single.get("category", 0)) + (str(parsed_single.get("subcategory", "")) or "")
+            rec["all_codes"] = [code_str] if code_str != "" else []
+            rec["all_categories"] = [rec["category"]]
+            rec["all_subcategories"] = [rec["subcategory"]]
+            records.append(rec)
 
     if not records:
         print("Dataset je prazan ili nije moguće učitati podatke.")

@@ -8,6 +8,8 @@ Second way is to use single prompt to do both tasks at once.
 Task 2 is extraction of the hate speech sentences extraction from long texts and token coverage, which is not included here, because we sentence-by-sentence approach.
 
 """
+# TODO: Proveriti dxa li ovo dobro sabira i gde ga sabira:
+
 
 import argparse
 import time
@@ -19,7 +21,7 @@ from typing import Optional, List, Dict
 
 from src.llm_detector import LLMDetector
 from src.categories import get_category_prompt, HATE_SPEECH_CATEGORIES
-from src.utils import load_excel_dataset, build_model_tags
+from src.utils import load_excel_dataset, build_model_tags, parse_category_and_subcategory
 from src.evaluation import HateSpeechEvaluator
 
 
@@ -44,6 +46,10 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
     total_categorize_s = 0.0
     n_detect_calls = 0
     n_categorize_calls = 0
+    # Multi-label metric accumulators (only over hate samples)
+    multi_label_sub_success: List[bool] = []
+    multi_label_cat_success: List[bool] = []
+    multi_label_denominator = 0
 
     for idx, rec in enumerate(records, start=1):
         text = (rec.get("text") or "").strip()
@@ -69,34 +75,114 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
         # Zadatak 3: Kategorizacija 0–7
         if has_hate:
             t1 = time.perf_counter()
-            pred_cat, pred_sub_cat = detector.categorize_hate_speech(text, categories_prompt)
+            pred_codes = detector.categorize_hate_speech(text, categories_prompt)
             total_categorize_s += (time.perf_counter() - t1)
             n_categorize_calls += 1
             print()
 
-            print(f"\tpredicted_category={pred_cat} {'  =  ' if pred_cat == gt_cat else '!='} ground_truth={gt_cat}")
+            # Choose primary predicted category for metrics (first non-zero if present)
+            primary_cat = 0
+            primary_sub_letter = ""
+            for code in (pred_codes or []):
+                parsed = parse_category_and_subcategory(code)
+                if int(parsed.get("category", 0)) != 0:
+                    primary_cat = int(parsed.get("category", 0))
+                    primary_sub_letter = str(parsed.get("subcategory", "") or "").lower()
+                    break
+            if primary_cat == 0 and pred_codes:
+                parsed = parse_category_and_subcategory(pred_codes[0])
+                primary_cat = int(parsed.get("category", 0))
+                primary_sub_letter = str(parsed.get("subcategory", "") or "").lower()
+
+            codes_str = ",".join(pred_codes) if pred_codes else ""
+            gt_codes = rec.get("all_codes") or ([f"{gt_cat}{gt_subcat}".lower()] if gt_cat or gt_subcat else [])
+            print(f"\tpredicted_codes={codes_str or ''}")
+            if gt_codes:
+                print(f"\tground_truth_codes={','.join(gt_codes)}")
+            # print(f"\tprimary_category={primary_cat} {'  =  ' if primary_cat == gt_cat else '!='} ground_truth={gt_cat}")
             # Only compare subcategory when GT has hate (category != 0)
             if gt_cat != 0:
-                # Normalize predicted subcategory to a letter (e.g., '3b' -> 'b')
-                pred_sub_letter = ""
-                if isinstance(pred_sub_cat, str):
-                    m = re.match(r"^\s*([0-7])\s*([a-z])\s*$", pred_sub_cat, flags=re.IGNORECASE)
-                    if m:
+                # If one of the predicted codes matches GT category, use its letter for subcategory comparison
+                pred_sub_letter = primary_sub_letter
+                for code in (pred_codes or []):
+                    m = re.match(r"^\s*([0-7])\s*([a-z])\s*$", code, flags=re.IGNORECASE)
+                    if m and int(m.group(1)) == gt_cat:
                         pred_sub_letter = m.group(2).lower()
-                    elif re.match(r"^[a-z]$", pred_sub_cat, flags=re.IGNORECASE):
-                        pred_sub_letter = pred_sub_cat.lower()
-                print(
-                    f"\tpredicted_subcategory={pred_sub_letter or ''} "
-                    f"{'  =  ' if (pred_sub_letter or '') == (gt_subcat or '') else '!='} "
-                    f"ground_truth_subcategory={gt_subcat or ''}"
-                )
+                        break
+                # print(
+                #     f"\tpredicted_subcategory={pred_sub_letter or ''} "
+                #     f"{'  =  ' if (pred_sub_letter or '') == (gt_subcat or '') else '!='} "
+                #     f"ground_truth_subcategory={gt_subcat or ''}"
+                # )
                 # Accumulate for subcategory accuracy
                 y_true_sub.append(gt_subcat or "")
                 y_pred_sub.append(pred_sub_letter or "")
 
             # Akumulacija
             y_true_cat.append(gt_cat)
-            y_pred_cat.append(int(pred_cat) if isinstance(pred_cat, int) else 0)
+            y_pred_cat.append(int(primary_cat))
+
+            # --- Detaljna multi-label komparacija ---
+            gt_codes_lower = [c.lower() for c in (gt_codes or [])]
+            gt_cat_numbers = {re.match(r"^([0-7])", c).group(1) for c in gt_codes_lower if re.match(r"^([0-7])", c)}
+            pred_with_sub = [c for c in pred_codes if re.match(r"^[0-7][a-z]$", c)]
+            pred_without_sub = [c for c in pred_codes if re.match(r"^[0-7]$", c)]
+
+            # 1) Prvo proveri sve predikcije sa podkategorijom za TAČNE mečeve
+            exact_hits = [code for code in pred_with_sub if code in gt_codes_lower]
+            for code in exact_hits:
+                print(f"\tMATCH: {code} (exact)")
+
+            if not exact_hits:
+                # 2) Ako nema nijednog tačnog meča, proveri PARTIAL (kategorija poklapa, podkategorija ne)
+                first_unmatched_printed = False
+                for code in pred_with_sub:
+                    if code in gt_codes_lower:
+                        # (Ovo se ne dešava jer bi bilo u exact_hits, ali ostavljeno radi robusnosti)
+                        print(f"\tMATCH: {code} (exact)")
+                        continue
+                    base_cat = code[0]
+                    if base_cat in gt_cat_numbers:
+                        print(f"\tPARTIAL: {code} (category {base_cat} present, subcategory differs)")
+                    elif not first_unmatched_printed:
+                        print(f"\tNO MATCH: {code} (category {base_cat} absent in ground truth)")
+                        first_unmatched_printed = True
+
+                # 3) Tek sada proveri predikcije bez podkategorije
+                for code in pred_without_sub:
+                    if code in gt_cat_numbers:
+                        print(f"\tCATEGORY MATCH: {code} (subcategory not specified / differs)")
+                    elif not first_unmatched_printed:
+                        print(f"\tNO MATCH: {code} (category absent)")
+                        first_unmatched_printed = True
+
+            # --- Akumulacija za multi-label metrike ---
+            # Ground-truth categories/subcategories per sample
+            # success_category: at least one predicted code matches a GT category (exact or partial)
+            # success_subcategory: at least one predicted code matches a GT code exactly (with subcategory)
+            #   PLUS: ako GT kategorija NEMA podkategoriju (npr. '2','5','7'), svaki pogodak te kategorije
+            #   računa se kao pogodak podkategorije (tretiraj kao exact na podkategoriji).
+            success_sub = any(code in gt_codes_lower for code in pred_with_sub)
+            success_cat = False
+
+            # GT kategorije bez podkategorije (jednocifreni kodovi)
+            gt_no_sub_cats = {code[0] for code in gt_codes_lower if re.match(r"^[0-7]$", code)}
+            pred_base_cats = {code[0] for code in (pred_codes or []) if re.match(r"^[0-7]([a-z])?$", code)}
+            if not success_sub and gt_no_sub_cats and (pred_base_cats & gt_no_sub_cats):
+                success_sub = True
+
+            if success_sub:
+                success_cat = True  # exact (ili no-sub GT) implicira uspeh kategorije
+            else:
+                # Check category-only matches (with or without subcategory predicted)
+                for code in pred_codes:
+                    base = code[0] if code else ""
+                    if base in gt_cat_numbers:
+                        success_cat = True
+                        break
+            multi_label_sub_success.append(success_sub)
+            multi_label_cat_success.append(success_cat)
+            multi_label_denominator += 1  # count only hate samples
 
     # Evaluacija
     evaluator = HateSpeechEvaluator()
@@ -104,11 +190,23 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
     category_metrics = evaluator.evaluate_multiclass_classification(y_true_cat, y_pred_cat)
     subcategory_metrics = evaluator.evaluate_multiclass_classification(y_true_sub, y_pred_sub)
 
+    # Multi-label dodatne metrike (samo za uzorke sa hate govorom)
+    multi_label_metrics = {}
+    if multi_label_denominator > 0:
+        multi_label_metrics = {
+            "multi_category_accuracy": sum(1 for v in multi_label_cat_success if v) / multi_label_denominator,
+            "multi_subcategory_accuracy": sum(1 for v in multi_label_sub_success if v) / multi_label_denominator,
+            "multi_samples": multi_label_denominator,
+        }
+
     # Tačnost za kategoriju i podkategoriju
     print("\n--- Dodatne metrike tačnosti ---")
     print(f"Binary accuracy:      {binary_metrics['accuracy']:.4f} ({len(y_true_bin)} samples)")
     print(f"Category accuracy:    {category_metrics['accuracy']:.4f} ({len(y_true_cat)} samples)")
     print(f"Subcategory accuracy: {subcategory_metrics['accuracy']:.4f} ({len(y_true_sub)} samples)")
+    if multi_label_metrics:
+        print("Multi-label category accuracy:    {:.4f} ({} hate samples)".format(multi_label_metrics['multi_category_accuracy'], multi_label_metrics['multi_samples']))
+        print("Multi-label subcategory accuracy: {:.4f} ({} hate samples)".format(multi_label_metrics['multi_subcategory_accuracy'], multi_label_metrics['multi_samples']))
 
     # Vreme (samo LLM pozivi)
     avg_detect_ms = (total_detect_s / n_detect_calls * 1000.0) if n_detect_calls else 0.0
@@ -132,6 +230,7 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
             "categorize_avg_ms": avg_categorize_ms,
             "llm_total_s": total_llm_s,
         },
+        "multi_label_metrics": multi_label_metrics,
     }
 
 
@@ -168,13 +267,17 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
         has_hate = bool(result.get("has_hate_speech", False))
         pred_cat = int(result.get("category", 0))
         pred_sub = str(result.get("subcategory", ""))
+        pred_codes = result.get("codes", [])
 
         y_true_bin.append(gt_has_hate)
         y_pred_bin.append(has_hate)
-        y_true_cat.append(gt_cat)
-        y_pred_cat.append(pred_cat)
-        if gt_cat != 0:
-            # normalize sub to single letter if needed
+        # Kategorizaciju računamo samo za uzorke koje u ground-truth imaju hate govor (isključujemo slučajeve gde su i GT i predikcija bez hate)
+        # Ovo poravnava ponašanje sa dva-prompt pristupom i uklanja true-negative uzorke iz denominatora.
+        if  gt_has_hate or  has_hate:
+            y_true_cat.append(gt_cat)
+            y_pred_cat.append(pred_cat)
+        # Subkategoriju računamo samo za uzorke gde JE hate govor i u GT i u predikciji (izbacujemo false negative slučajeve poput [6]).
+        if gt_cat != 0 and has_hate and gt_has_hate:
             m = re.match(r"^\s*([0-7])\s*([a-z])\s*$", pred_sub, flags=re.IGNORECASE)
             pred_sub_letter = m.group(2).lower() if m else (pred_sub.lower() if re.match(r"^[a-z]$", pred_sub, flags=re.IGNORECASE) else "")
             y_true_sub.append(gt_subcat or "")
@@ -182,10 +285,72 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
 
         short_text = (text[:120] + "…") if len(text) > 120 else text
         print(f"\n[{idx}] {short_text}")
-        print(f"\tone-prompt has_hate={has_hate} vs gt={gt_has_hate}")
-        print(f"\tone-prompt category={pred_cat} vs gt={gt_cat}")
-        if gt_cat != 0:
-            print(f"\tone-prompt subcat={pred_sub or ''} vs gt={gt_subcat or ''}")
+        print(f"\thas_hate={has_hate} {'  =  ' if has_hate == gt_has_hate else '!='} ground_truth={gt_has_hate}")
+
+        # Mirror two-prompt detail only when hate is detected
+        if has_hate:
+            # Choose primary predicted category for display consistency (first non-zero)
+            primary_cat = 0
+            primary_sub_letter = ""
+            for code in (pred_codes or []):
+                parsed = parse_category_and_subcategory(code)
+                if int(parsed.get("category", 0)) != 0:
+                    primary_cat = int(parsed.get("category", 0))
+                    primary_sub_letter = str(parsed.get("subcategory", "") or "").lower()
+                    break
+            if primary_cat == 0 and pred_codes:
+                parsed = parse_category_and_subcategory(pred_codes[0])
+                primary_cat = int(parsed.get("category", 0))
+                primary_sub_letter = str(parsed.get("subcategory", "") or "").lower()
+
+            codes_str = ",".join(pred_codes) if pred_codes else ""
+            gt_codes = rec.get("all_codes") or ([f"{gt_cat}{gt_subcat}".lower()] if gt_cat or gt_subcat else [])
+            print(f"\tpredicted_codes={codes_str or ''}")
+            if gt_codes:
+                print(f"\tground_truth_codes={','.join(gt_codes)}")
+
+            # Only compare subcategory when GT has hate (category != 0)
+            if gt_cat != 0:
+                # If one of the predicted codes matches GT category, use its letter for subcategory comparison
+                pred_sub_letter = primary_sub_letter
+                for code in (pred_codes or []):
+                    m = re.match(r"^\s*([0-7])\s*([a-z])\s*$", code, flags=re.IGNORECASE)
+                    if m and int(m.group(1)) == gt_cat:
+                        pred_sub_letter = m.group(2).lower()
+                        break
+
+            # --- Detailed multi-label comparison (same as two-prompt) ---
+            gt_codes_lower = [c.lower() for c in (gt_codes or [])]
+            gt_cat_numbers = {re.match(r"^([0-7])", c).group(1) for c in gt_codes_lower if re.match(r"^([0-7])", c)}
+            pred_with_sub = [c for c in pred_codes if re.match(r"^[0-7][a-z]$", c)]
+            pred_without_sub = [c for c in pred_codes if re.match(r"^[0-7]$", c)]
+
+            # 1) Exact matches first
+            exact_hits = [code for code in pred_with_sub if code in gt_codes_lower]
+            for code in exact_hits:
+                print(f"\tMATCH: {code} (exact)")
+
+            if not exact_hits:
+                # 2) Partial matches by category letter
+                first_unmatched_printed = False
+                for code in pred_with_sub:
+                    if code in gt_codes_lower:
+                        print(f"\tMATCH: {code} (exact)")
+                        continue
+                    base_cat = code[0]
+                    if base_cat in gt_cat_numbers:
+                        print(f"\tPARTIAL: {code} (category {base_cat} present, subcategory differs)")
+                    elif not first_unmatched_printed:
+                        print(f"\tNO MATCH: {code} (category {base_cat} absent in ground truth)")
+                        first_unmatched_printed = True
+
+                # 3) Predictions without subcategory
+                for code in pred_without_sub:
+                    if code in gt_cat_numbers:
+                        print(f"\tCATEGORY MATCH: {code} (subcategory not specified / differs)")
+                    elif not first_unmatched_printed:
+                        print(f"\tNO MATCH: {code} (category absent)")
+                        first_unmatched_printed = True
 
     evaluator = HateSpeechEvaluator()
     binary_metrics = evaluator.evaluate_binary_classification(y_true_bin, y_pred_bin)
@@ -261,8 +426,10 @@ def run(excel_path: str, models: List[str] = []) -> None:
         # print("\nIzveštaj klasifikacije po kategorijama:")
         # print(res["classification_report"])
 
-    two_prompt_evaluator.save_results_to_excel("results/single_sentence_comparison.xlsx", sheet_name="Two Prompts")
-    one_prompt_evaluator.save_results_to_excel("results/single_sentence_comparison.xlsx", sheet_name="One Prompt")
+    if two_prompt_evaluator.results:
+        two_prompt_evaluator.save_results_to_excel("results/single_sentence_comparison_multiple_cat.xlsx", sheet_name="Two Prompts")
+    if one_prompt_evaluator.results:
+        one_prompt_evaluator.save_results_to_excel("results/single_sentence_comparison_multiple_cat.xlsx", sheet_name="One Prompt")
 
     # Uporedni pregled (tabela)
     print("\n" + "#" * 70)
@@ -294,4 +461,5 @@ if __name__ == "__main__":
     run(
         excel_path="data/single_sentence_hate_speech_labeled_samples_small.xlsx",
         # models=["llama", "qwen3"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
+        # models=["llama"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
     )

@@ -3,12 +3,11 @@ Evaluation Metrics for Hate Speech Detection
 """
 
 from typing import List, Dict
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
     accuracy_score,
-    precision_score,
-    recall_score,
     f1_score,
     confusion_matrix,
     classification_report,
@@ -22,26 +21,19 @@ class HateSpeechEvaluator:
         self.results = []
 
     def evaluate_binary_classification(self, y_true: List[bool], y_pred: List[bool]) -> Dict[str, float]:
-        """Evaluate binary hate speech detection (Task 1)"""
+        """Evaluate binary hate speech detection (Task 1) with minimal metrics."""
         y_true_int = [int(y) for y in y_true]
         y_pred_int = [int(y) for y in y_pred]
         return {
             "accuracy": accuracy_score(y_true_int, y_pred_int),
-            "precision": precision_score(y_true_int, y_pred_int, zero_division=0),
-            "recall": recall_score(y_true_int, y_pred_int, zero_division=0),
             "f1": f1_score(y_true_int, y_pred_int, zero_division=0),
         }
 
     def evaluate_multiclass_classification(self, y_true: List[int], y_pred: List[int]) -> Dict[str, float]:
-        """Evaluate multiclass hate speech categorization (Task 3)"""
+        """Evaluate multiclass categorization with minimal metrics (accuracy + micro-F1)."""
         return {
             "accuracy": accuracy_score(y_true, y_pred),
-            "precision_macro": precision_score(y_true, y_pred, average='macro', zero_division=0),
-            "recall_macro": recall_score(y_true, y_pred, average='macro', zero_division=0),
-            "f1_macro": f1_score(y_true, y_pred, average='macro', zero_division=0),
-            "precision_weighted": precision_score(y_true, y_pred, average='weighted', zero_division=0),
-            "recall_weighted": recall_score(y_true, y_pred, average='weighted', zero_division=0),
-            "f1_weighted": f1_score(y_true, y_pred, average='weighted', zero_division=0),
+            "f1": f1_score(y_true, y_pred, average='micro', zero_division=0),
         }
 
     def evaluate_token_coverage(self, tokens_covered_list: List[int], total_tokens_list: List[int]) -> Dict[str, float]:
@@ -101,7 +93,7 @@ class HateSpeechEvaluator:
         if category_metrics is not None:
             print("\n--- Zadatak 2: Kategorizacija ---")
             for metric, value in category_metrics.items():
-                print(f"{metric:20s}: {value:.4f}")
+                print(f"{metric.capitalize():20s}: {value:.4f}")
 
     def print_results(self, model_name: str = None):
         """Print formatted evaluation results"""
@@ -131,11 +123,23 @@ class HateSpeechEvaluator:
         return self.df
 
     def save_results_to_excel(self, output_path: str = None, verbose: bool = False, sheet_name: str = None):
-        """Save comparison results to Excel file"""
+        """Save comparison results to Excel file.
+
+        Creates file if it does not exist (mode='w'), otherwise appends (mode='a').
+        """
         if not hasattr(self, 'df'):
-            self.to_dataframe()        
-        with pd.ExcelWriter(str(output_path), engine="openpyxl", mode="a", if_sheet_exists="new") as writer:
-            self.df.to_excel(writer, index=False, sheet_name=sheet_name)
+            self.to_dataframe()
+        write_mode = "a" if output_path and Path(output_path).exists() else "w"
+        # Ensure parent directory exists
+        if output_path:
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        # Use if_sheet_exists only in append mode to avoid pandas ValueError
+        if write_mode == "a":
+            with pd.ExcelWriter(str(output_path), engine="openpyxl", mode=write_mode, if_sheet_exists="new") as writer:
+                self.df.to_excel(writer, index=False, sheet_name=sheet_name)
+        else:
+            with pd.ExcelWriter(str(output_path), engine="openpyxl", mode=write_mode) as writer:
+                self.df.to_excel(writer, index=False, sheet_name=sheet_name or "Sheet1")
         if verbose:
             print(self.df)
         print(f"\nRezultati su sačuvani u: {output_path}")
