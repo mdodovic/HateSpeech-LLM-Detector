@@ -1,7 +1,0 @@
-{categories_prompt}
-
-Iz sledećeg teksta izdvoj rečenice koje u sebi sadrže govor mržnje. Nemoj menjati rečenice.
-Potrebno je da klasifikuješ svaku izdvojenu rečenicu u jednu od kategorija iznad. Ukoliko kategorija ima podkategoriju odredi i nju.
-Odgovori u novom redu za svaku rečenicu u formatu (rečenica; kategorija; podkategorija)
-Tekst: {text}
-Rečenice:

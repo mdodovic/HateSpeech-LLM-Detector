@@ -44,8 +44,32 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
         text = (rec.get("text") or "").strip()
         if not text:
             continue
-        gt_all_cats = rec.get("all_categories") or []
-        gt_all_subs = rec.get("all_subcategories") or []
+        # Parse GT entries per sentence from raw cell: split by commas outside parentheses;
+        # if entry is like (6c;0) treat as multiple codes for that sentence.
+        raw_cell = str(rec.get("category_raw", "") or "")
+        def split_gt_entries(s: str) -> list[str]:
+            entries = []
+            buf = []
+            depth = 0
+            for ch in s:
+                if ch == '(':
+                    depth += 1
+                    buf.append(ch)
+                elif ch == ')':
+                    depth = max(0, depth - 1)
+                    buf.append(ch)
+                elif ch == ',' and depth == 0:
+                    token = ''.join(buf).strip()
+                    if token:
+                        entries.append(token)
+                    buf = []
+                else:
+                    buf.append(ch)
+            token = ''.join(buf).strip()
+            if token:
+                entries.append(token)
+            return entries
+        gt_entries = split_gt_entries(raw_cell)
 
         # Jedini poziv modelu: klasifikuj SVE rečenice
         t0 = time.perf_counter()
@@ -58,39 +82,90 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
         print(f"\n[{idx}] {short_text}")
 
         # Uskladi po indeksu: rečenica i-ti GT protiv i-te predikcije
-        n = min(len(pred_sentences), len(gt_all_cats))
-        if len(pred_sentences) != len(gt_all_cats):
-            print(f"\tUpozorenje: broj predikovanih rečenica ({len(pred_sentences)}) != broj GT oznaka ({len(gt_all_cats)}). Poređenje na prvih {n}.")
+        n = min(len(pred_sentences), len(gt_entries))
+        if len(pred_sentences) != len(gt_entries):
+            print(f"\tUpozorenje: broj predikovanih rečenica ({len(pred_sentences)}) != broj GT oznaka ({len(gt_entries)}). Poređenje na prvih {n}.")
 
         for i in range(n):
             pred = pred_sentences[i]
-            gt_cat = int(gt_all_cats[i])
-            gt_sub = str(gt_all_subs[i] or "").lower()
 
-            # Predikcija
+            # --- Parse GT multi-label codes per sentence ---
+            raw_gt = gt_entries[i] if i < len(gt_entries) else "0"
+            s = str(raw_gt).strip().lower()
+            gt_codes: list[str] = []
+            if s.startswith("(") and s.endswith(")"):
+                inner = s[1:-1]
+                parts = [p.strip() for p in inner.split(";") if p.strip()]
+                for p in parts:
+                    m = re.match(r"^([0-7])\s*([a-z])?$", p)
+                    if m:
+                        gt_codes.append(m.group(1) + (m.group(2) or ""))
+                    elif p == "0":
+                        gt_codes.append("0")
+            else:
+                m = re.match(r"^([0-7])\s*([a-z])?$", s)
+                if m:
+                    gt_codes = [m.group(1) + (m.group(2) or "")]
+                elif s == "0":
+                    gt_codes = ["0"]
+                else:
+                    gt_codes = ["0"]
+            gt_has_hate = any(c != "0" for c in gt_codes)
+
+            # Predikcija (single label per sentence)
             pred_cat = int(pred.get("category", 0))
             raw_sub = str(pred.get("subcategory", "") or "").strip()
-            # Normalizuj subkategoriju na slovo (ako je 3b/"b")
             parsed_sub = parse_category_and_subcategory(raw_sub)
             pred_sub_letter = parsed_sub.get("subcategory", "").lower()
             if not pred_sub_letter and re.match(r"^[a-z]$", raw_sub, flags=re.IGNORECASE):
                 pred_sub_letter = raw_sub.lower()
 
-            # Binary po rečenici: (gt_cat != 0) vs (pred_cat != 0)
-            y_true_bin_sent.append(gt_cat != 0)
+            # Binary po rečenici: GT any non-zero vs predicted non-zero
+            y_true_bin_sent.append(gt_has_hate)
             y_pred_bin_sent.append(pred_cat != 0)
-            # Kategorija
-            y_true_cat_sent.append(gt_cat)
+
+            # Category accuracy: count "best" match (success if pred matches ANY GT category)
+            gt_base_nums = {int(c[0]) for c in gt_codes if re.match(r"^[0-7]", c)}
+            cat_match = (pred_cat == 0 and not gt_has_hate) or (pred_cat != 0 and pred_cat in gt_base_nums)
             y_pred_cat_sent.append(pred_cat)
-            # Subkategorija samo kad je GT != 0
-            if gt_cat != 0:
-                y_true_sub_sent.append(gt_sub)
+            y_true_cat_sent.append(pred_cat if cat_match else -1)
+
+            # Subcategory accuracy: evaluate only when BOTH GT and prediction indicate hate (intersection)
+            if gt_has_hate and pred_cat != 0:
+                gt_exact = {c for c in gt_codes if re.match(r"^[0-7][a-z]$", c)}
+                gt_no_sub = {c for c in gt_codes if re.match(r"^[0-7]$", c)}
+                sub_match = False
+                if pred_sub_letter and f"{pred_cat}{pred_sub_letter}" in gt_exact:
+                    sub_match = True
+                elif not pred_sub_letter and str(pred_cat) in gt_no_sub:
+                    sub_match = True
+                elif str(pred_cat) in {c[0] for c in gt_exact}:
+                    # category matches but subcategory differs -> count as miss for subcategory
+                    sub_match = False
                 y_pred_sub_sent.append(pred_sub_letter or "")
+                y_true_sub_sent.append((pred_sub_letter or "") if sub_match else "#")
 
             # Štampa po rečenici
             sent_text = pred.get("sentence", "")
             print(f"\t[SENT {i+1}] {sent_text}")
-            print(f"\t         pred: cat={pred_cat}, sub={pred_sub_letter or ''}  |  gt: cat={gt_cat}, sub={gt_sub}")
+            gt_codes_str = ";".join(gt_codes) if gt_codes else "0"
+            print(f"\t         pred: cat={pred_cat}, sub={pred_sub_letter or ''}  |  gt: codes={gt_codes_str}")
+            # Detailed comparison of prediction against EACH GT code (choose best match semantics)
+            for gcode in gt_codes:
+                if gcode == "0":
+                    print(f"\t         compare with gt=0: {'MATCH' if pred_cat == 0 else 'NO MATCH'}")
+                    continue
+                base = int(gcode[0]) if re.match(r"^[0-7]", gcode) else 0
+                letter = gcode[1:] if len(gcode) > 1 else ""
+                cat_ok = (pred_cat == base)
+                sub_ok = cat_ok and (
+                    (letter == "" and (pred_sub_letter == "")) or
+                    (letter != "" and (pred_sub_letter == letter))
+                )
+                if cat_ok:
+                    print(f"\t         compare with gt={gcode}: CAT MATCH; SUB {'MATCH' if sub_ok else 'MISMATCH'}")
+                else:
+                    print(f"\t         compare with gt={gcode}: CAT MISMATCH")
 
     evaluator = HateSpeechEvaluator()
     binary_metrics = evaluator.evaluate_binary_classification(y_true_bin_sent, y_pred_bin_sent)
@@ -119,15 +194,17 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
     }
 
 
-def run(excel_path: str, models: List[str]) -> None:
+def run(excel_path: str, models: List[str] = [], debug: int = -1, output_path: str = "results/full_text_comparison.xlsx", output_sheet_name: str = "Full") -> None:
     """Pokreni evaluaciju za više LLM-ova i prikaži metrike."""
     print("Učitavam dataset iz Excel fajla…")
     # For full-text spreadsheets where 'Category' contains comma-separated codes,
     # use the dedicated loader. Fallback to generic loader if needed.
     records = load_excel_full_text_dataset(excel_path)
+
     # Ograniči na jedan pasus (za sada)
-    if len(records) > 1:
-        records = records[:1]
+    if debug > 0 and len(records) > debug:
+        print(f"VAŽNO: Ograničavam na prva {debug} uzorak iz razloga testiranja.")
+        records = records[:debug]
 
     # Izgradi mapiranje ime->tag (ako models nije zadan, koristi sve iz JSON-a)
     model_tags: Dict[str, str] = build_model_tags(models)
@@ -156,7 +233,7 @@ def run(excel_path: str, models: List[str]) -> None:
         # print("\nIzveštaj klasifikacije po kategorijama:")
         # print(res["classification_report"])
 
-    one_prompt_evaluator.save_results_to_excel("results/full_text_comparison.xlsx", sheet_name="Full")
+    one_prompt_evaluator.save_results_to_excel(output_path, sheet_name=output_sheet_name)
 
     # Uporedni pregled (tabela)
     print("\n" + "#" * 70)
@@ -173,6 +250,6 @@ def run(excel_path: str, models: List[str]) -> None:
 if __name__ == "__main__":
     # Jednostavan podrazumevani poziv: koristi modele iz models/models.json ili data/models.json
     run(
-        excel_path="data/paragraph_hate_speech_labeled.xlsx",
-        models=["llama", "qwen3"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
+        excel_path="data/paragraph_hate_speech.xlsx",
+        # models=["llama", "qwen3"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
     )

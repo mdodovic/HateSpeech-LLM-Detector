@@ -96,8 +96,9 @@ def expand_to_sentences(df: pd.DataFrame, id_col, text_col, cat_col) -> pd.DataF
         for i, sent in enumerate(sentences):
             cat_val = cats[i] if i < len(cats) else ''
             rows.append({
-                'Sentence': sent,
-                'Category': cat_val,
+                'ID': sample_id,
+                'Text': sent,
+                'Category': cat_val.replace(')', '').replace('(', '').replace(';', ','),
             })
 
     return pd.DataFrame(rows)
