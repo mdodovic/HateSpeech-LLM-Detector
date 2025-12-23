@@ -213,6 +213,7 @@ def load_excel_full_text_dataset(filepath: str) -> List[Dict]:
             "has_hate_speech": has_hate,
             "category": primary_cat,
             "subcategory": primary_sub,
+            "category_raw": str(cat_cell),
             "all_codes": raw_codes,
             "all_categories": all_categories,
             "all_subcategories": all_subcats,

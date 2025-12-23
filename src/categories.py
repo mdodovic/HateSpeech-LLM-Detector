@@ -48,6 +48,7 @@ SUBCATEGORY_DESCRIPTIONS = {
     6: {
         "6a": "Socioekonomski status / klasa → klasizam",
         "6b": "Zanimanje / profesija → stigmatizacija određenih zanimanja",
+        "6c": "Politička netrpeljivost → politička diskriminacija",
     },
     7: {
         "7": "Navijačko opredeljenje → sportska netrpeljivost, huliganizam",
