@@ -16,7 +16,21 @@ def split_sentences(text: str) -> list[str]:
     s = str(text).strip()
     # Keep punctuation with the sentence; split on boundary between sentences
     # Supports Latin (incl. Serbian diacritics) and Cyrillic blocks
-    pattern = r"(?<=[.!?…])\s+(?=[A-Za-zČĆŠĐŽčćšđž\u0400-\u04FF0-9\"\“\”\„])"
+    # Treat emojis as valid "next characters" after punctuation so we split even when
+    # a sentence ends with e.g. "... ! <emoji> Next sentence". We include common emoji
+    # Unicode ranges alongside letters, digits, and quotes in the lookahead.
+    #
+    # Note: Python's built-in `re` doesn't support Unicode properties like \p{Emoji},
+    # so we explicitly list the primary emoji blocks:
+    # - U+2600–U+26FF  Misc Symbols
+    # - U+2700–U+27BF  Dingbats
+    # - U+1F1E6–U+1F1FF Regional Indicator Symbols (flags)
+    # - U+1F300–U+1F5FF Misc Symbols and Pictographs
+    # - U+1F600–U+1F64F Emoticons
+    # - U+1F680–U+1F6FF Transport and Map Symbols
+    # - U+1F900–U+1F9FF Supplemental Symbols and Pictographs
+    # - U+1FA70–U+1FAFF Symbols & Pictographs Extended-A
+    pattern = "(?<=[.!?…])\\s+(?=(?:[A-Za-zČĆŠĐŽčćšđž\\u0400-\\u04FF0-9'\"“”„‘’()]|[\\u2600-\\u26FF\\u2700-\\u27BF\\U0001F1E6-\\U0001F1FF\\U0001F300-\\U0001F5FF\\U0001F600-\\U0001F64F\\U0001F680-\\U0001F6FF\\U0001F900-\\U0001F9FF\\U0001FA70-\\U0001FAFF]))"
     parts = re.split(pattern, s)
     # Clean up extra whitespace
     return [p.strip() for p in parts if p and p.strip()]
@@ -31,7 +45,7 @@ def split_categories(categories: str) -> list[str]:
     # Only comma-separated; ignore empty trailing commas
     return [c.strip() for c in raw.split(',') if c.strip() or c.strip() == '0']
 
-def process_excel(file_path: Path, sample_filter: str | int | None = None) -> None:
+def process_excel(file_path: Path, sample_filter: str | int | None = None, only_mismatch: bool = False) -> None:
     """Process Excel file and print sentence:category pairs per sample.
 
     Expected columns (case-insensitive): ID, Text, Category
@@ -74,9 +88,14 @@ def process_excel(file_path: Path, sample_filter: str | int | None = None) -> No
         sentences = split_sentences(text)
         cats = split_categories(categories)
 
+        mismatch = (len(sentences) != len(cats))
+        if only_mismatch and not mismatch:
+            # Skip clean samples when only mismatches are requested
+            continue
+
         print(f"sample: {sample_id}")
         print(f"sentences={len(sentences)} categories={len(cats)}")
-        if len(sentences) != len(cats):
+        if mismatch:
             print("WARNING: counts mismatch; showing aligned pairs and extras below.")
 
         # Print aligned pairs
@@ -114,6 +133,7 @@ def main():
     parser = argparse.ArgumentParser(description="Print cat:sentence pairs from Excel data")
     parser.add_argument("-f", "--file", dest="file", help="Excel file or directory to process; defaults to all .xlsx in data/", default=None)
     parser.add_argument("-s", "--sample", dest="sample", help="Filter to a single sample ID", default=None)
+    parser.add_argument("-only_mismatch", "--only_mismatch", "-m", dest="only_mismatch", action="store_true", help="Print only samples where sentence/category counts mismatch")
     args = parser.parse_args()
 
     excel_files = gather_excel_files(args.file)
@@ -124,7 +144,7 @@ def main():
 
     for excel_file in excel_files:
         try:
-            process_excel(excel_file, sample_filter=args.sample)
+            process_excel(excel_file, sample_filter=args.sample, only_mismatch=args.only_mismatch)
         except Exception as e:
             print(f"Error processing {excel_file}: {e}")
 
