@@ -66,3 +66,50 @@ def get_category_prompt(include_subcategories: bool = True) -> str:
                 prompt += f"   - {code}: {desc}\n"
         prompt += "\n"
     return prompt
+
+
+def code_to_label(code: str) -> str:
+    """Return a concise human-readable label for a category/subcategory code.
+
+    Examples:
+      code_to_label("0")   -> "Bez govora mržnje"
+      code_to_label("1")   -> "Rasna i etničko-nacionalna mržnja"
+      code_to_label("1a")  -> "Rasa / boja kože"
+      code_to_label("3b")  -> "LGBTQ+ identiteti"
+      code_to_label("6c")  -> "Politička netrpeljivost"
+    """
+    if not isinstance(code, str):
+        code = str(code or "")
+    s = code.strip().lower()
+    if s == "0":
+        return HATE_SPEECH_CATEGORIES.get(0, "Bez govora mržnje")
+    if s in {"u", "uvreda"}:
+        return "Uvreda"
+    # Subcategory like '3b'
+    import re as _re
+    m = _re.match(r"^([0-7])([a-z])$", s)
+    if m:
+        cid = int(m.group(1))
+        subcode = s
+        # If subcategory is 'u' (offense), label as Uvreda regardless of category
+        if subcode.endswith("u"):
+            return "Uvreda"
+        submap = SUBCATEGORY_DESCRIPTIONS.get(cid, {})
+        desc = submap.get(subcode)
+        if isinstance(desc, str) and desc:
+            # Extract label before '→' if present, else full string
+            label = desc.split("→", 1)[0].strip()
+            return label or desc
+        return HATE_SPEECH_CATEGORIES.get(cid, f"Kategorija {cid}")
+    # Top-level like '3'
+    m2 = _re.match(r"^([0-7])$", s)
+    if m2:
+        cid = int(m2.group(1))
+        # Some categories have top-level entries in SUBCATEGORY_DESCRIPTIONS (e.g., '2')
+        submap = SUBCATEGORY_DESCRIPTIONS.get(cid, {})
+        top_desc = submap.get(str(cid))
+        if isinstance(top_desc, str) and top_desc:
+            return top_desc.split("→", 1)[0].strip()
+        return HATE_SPEECH_CATEGORIES.get(cid, f"Kategorija {cid}")
+    # Fallback for unknown format
+    return s or ""
