@@ -11,7 +11,7 @@ from src.utils import (
     load_excel_dataset,
     parse_category_and_subcategory,
 )
-from src.categories import code_to_label
+from src.categories import code_to_label, code_to_label_en
 
 
 # --- Helpers ---
@@ -211,7 +211,7 @@ def analyze_full_text_dataset(excel_path: str, limit: int = -1) -> Dict:
             # Bar chart for per-category sentence counts (hate only)
             cats = list(range(1, 8))
             values = [per_cat_sentences[c] for c in cats]
-            labels = [code_to_label(str(c)) for c in cats]
+            labels = [code_to_label_en(str(c)) for c in cats]
             wrapped = [textwrap.fill(lbl, width=18) for lbl in labels]
 
             # # Horizontal (categories on left, numbers on x-axis)
@@ -229,7 +229,7 @@ def analyze_full_text_dataset(excel_path: str, limit: int = -1) -> Dict:
 
             # Pie chart (three-way)
             sizes = [threeway["no_hate"], threeway["offense"], threeway["hate"]]
-            labels = ["No hate", "Offense (Uvreda)", "Hate speech"]
+            labels = ["No hate", "Offense", "Hate speech"]
             colors = ["#9EBCDA", "#F28E2B", "#E15759"]
             fig, ax = plt.subplots(figsize=(6, 6))
             wedges, texts, autotexts = ax.pie(
@@ -355,7 +355,7 @@ def analyze_single_sentence_dataset(excel_path: str, limit: int = -1) -> Dict:
             # Bar chart per-category
             cats = list(range(1, 8))
             values = [per_cat[c] for c in cats]
-            labels = [code_to_label(str(c)) for c in cats]
+            labels = [code_to_label_en(str(c)) for c in cats]
             wrapped = [textwrap.fill(lbl, width=18) for lbl in labels]
 
             # Vertical
@@ -387,7 +387,7 @@ def analyze_single_sentence_dataset(excel_path: str, limit: int = -1) -> Dict:
             if per_sub:
                 sub_keys = sorted(per_sub.keys())
                 sub_vals = [per_sub[k] for k in sub_keys]
-                sub_labels = [code_to_label(k) for k in sub_keys]
+                sub_labels = [code_to_label_en(k) for k in sub_keys]
                 sub_wrapped = [textwrap.fill(lbl, width=16) for lbl in sub_labels]
                 # Vertical
                 fig, ax = plt.subplots(figsize=(12, 6))
