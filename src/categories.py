@@ -1,5 +1,5 @@
 """
-Definicije kategorija govora mržnje (srpski)
+Definicije kategorija govora mržnje (srpski) + English label helpers
 """
 
 HATE_SPEECH_CATEGORIES = {
@@ -22,6 +22,49 @@ CATEGORY_DESCRIPTIONS = {
     5: "Mržnja zasnovana na uzrastu i generacijama (ageizam).",
     6: "Mržnja zasnovana na socioekonomskom statusu ili zanimanju (klasizam; stigmatizacija određenih profesija).",
     7: "Mržnja povezana sa sportom i navijačkim opredeljenjem (sportska netrpeljivost, huliganizam).",
+}
+
+
+# --- English labels (concise) ---
+HATE_SPEECH_CATEGORIES_EN = {
+    0: "No hate speech",
+    1: "Racial and ethnic/national hate",
+    2: "Religious hate",
+    3: "Sex- and gender-based hate",
+    4: "Physical traits and health-based hate",
+    5: "Age- and generation-based hate",
+    6: "Socioeconomic hate",
+    7: "Sports and fan-based hate",
+}
+
+SUBCATEGORY_DESCRIPTIONS_EN = {
+    1: {
+        "1a": "Race / skin color",
+        "1b": "Ethnic affiliation",
+        "1c": "Nationality / origin (xenophobia)",
+    },
+    2: {
+        "2": "Religion and faith",
+    },
+    3: {
+        "3a": "Sex (sexism)",
+        "3b": "LGBTQ+ identities",
+    },
+    4: {
+        "4a": "Physical appearance",
+        "4b": "Illness / disability",
+    },
+    5: {
+        "5": "Age (ageism)",
+    },
+    6: {
+        "6a": "Socioeconomic status / class",
+        "6b": "Occupation / profession",
+        "6c": "Political intolerance",
+    },
+    7: {
+        "7": "Supporter affiliation",
+    },
 }
 
 # Detaljnije potkategorije po vašoj specifikaciji
@@ -112,4 +155,45 @@ def code_to_label(code: str) -> str:
             return top_desc.split("→", 1)[0].strip()
         return HATE_SPEECH_CATEGORIES.get(cid, f"Kategorija {cid}")
     # Fallback for unknown format
+    return s or ""
+
+
+def code_to_label_en(code: str) -> str:
+    """Return a concise English label for a category/subcategory code.
+
+    Examples:
+      code_to_label_en("0")   -> "No hate speech"
+      code_to_label_en("1")   -> "Racial and ethnic/national hate"
+      code_to_label_en("1a")  -> "Race / skin color"
+      code_to_label_en("3b")  -> "LGBTQ+ identities"
+      code_to_label_en("6c")  -> "Political intolerance"
+    """
+    if not isinstance(code, str):
+        code = str(code or "")
+    s = code.strip().lower()
+    if s == "0":
+        return HATE_SPEECH_CATEGORIES_EN.get(0, "No hate speech")
+    if s in {"u", "uvreda", "offense"}:
+        return "Offense"
+    import re as _re
+    m = _re.match(r"^([0-7])([a-z])$", s)
+    if m:
+        cid = int(m.group(1))
+        subcode = s
+        if subcode.endswith("u"):
+            return "Offense"
+        submap = SUBCATEGORY_DESCRIPTIONS_EN.get(cid, {})
+        desc = submap.get(subcode)
+        if isinstance(desc, str) and desc:
+            # For English we store concise labels directly
+            return desc.strip()
+        return HATE_SPEECH_CATEGORIES_EN.get(cid, f"Category {cid}")
+    m2 = _re.match(r"^([0-7])$", s)
+    if m2:
+        cid = int(m2.group(1))
+        submap = SUBCATEGORY_DESCRIPTIONS_EN.get(cid, {})
+        top_desc = submap.get(str(cid))
+        if isinstance(top_desc, str) and top_desc:
+            return top_desc.strip()
+        return HATE_SPEECH_CATEGORIES_EN.get(cid, f"Category {cid}")
     return s or ""
