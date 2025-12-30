@@ -19,8 +19,38 @@ try:
     import matplotlib.pyplot as plt
     _HAS_MPL = True
     plt.style.use('ggplot')
+    # Increase global font sizes for readability
+    import matplotlib as mpl
+    mpl.rcParams.update({
+        "font.family": "serif",
+        "font.serif": ["Times New Roman"],
+        "font.size": 24,
+        "axes.titlesize": 24,
+        "axes.labelsize": 24,
+        "xtick.labelsize": 24,
+        "ytick.labelsize": 24,
+        "legend.fontsize": 24,
+        "figure.titlesize": 24,
+    })
 except Exception:
     _HAS_MPL = False
+
+def wrap_two_lines(lbl: str, base_width: int = 20) -> str:
+    """Wrap a label into at most two lines.
+
+    Tries the given width; if result has >2 lines, increases width until it fits
+    in ≤2 lines, else falls back to splitting roughly in half.
+    """
+    s = textwrap.fill(lbl, width=base_width)
+    parts = s.split("\n")
+    if len(parts) <= 2:
+        return s
+    for w in range(base_width + 1, base_width + 12):
+        s2 = textwrap.fill(lbl, width=w)
+        if s2.count("\n") <= 1:
+            return s2
+    mid = len(parts) // 2
+    return " ".join(parts[:mid]) + "\n" + " ".join(parts[mid:])
 
 def split_sentences(text: str) -> List[str]:
     """Split text into sentences without dropping punctuation.
@@ -198,14 +228,14 @@ def analyze_full_text_dataset(excel_path: str, limit: int = -1) -> Dict:
             # horiz_dir.mkdir(parents=True, exist_ok=True)
 
             # Histograms of sentence counts (splitter vs GT)
-            fig, ax = plt.subplots(figsize=(8, 5))
+            fig, ax = plt.subplots(figsize=(12, 8))
             ax.hist(split_counts, bins='auto', alpha=0.6, label='Splitter count')
             ax.hist(gt_counts, bins='auto', alpha=0.6, label='GT entry count')
-            ax.set_title('Sentence Count per Sample (Full-text)')
+            # ax.set_title('Sentence Count per Sample (Full-text)')
             ax.set_xlabel('Number of sentences')
             ax.set_ylabel('Number of samples')
             fig.tight_layout()
-            fig.savefig(out_dir / 'full_text_sentence_counts_hist.png', dpi=150)
+            fig.savefig(out_dir / 'full_text_sentence_counts_hist.png', dpi=300)
             plt.close(fig)
 
             # Bar chart for per-category sentence counts (hate only)
@@ -224,26 +254,26 @@ def analyze_full_text_dataset(excel_path: str, limit: int = -1) -> Dict:
             # ax.set_xlabel('Sentence count')
             # ax.set_ylabel('Category')
             # fig.tight_layout()
-            # fig.savefig(horiz_dir / 'full_text_category_bar_h.png', dpi=150)
+            # fig.savefig(horiz_dir / 'full_text_category_bar_h.png', dpi=300)
             # plt.close(fig)
 
             # Pie chart (three-way)
             sizes = [threeway["no_hate"], threeway["offense"], threeway["hate"]]
             labels = ["No hate", "Offense", "Hate speech"]
             colors = ["#9EBCDA", "#F28E2B", "#E15759"]
-            fig, ax = plt.subplots(figsize=(6, 6))
+            fig, ax = plt.subplots(figsize=(8, 8))
             wedges, texts, autotexts = ax.pie(
                 sizes,
                 labels=labels,
                 autopct=lambda p: f"{p:.1f}%\n({int(round(p/100.0*sum(sizes)))})" if sum(sizes) else "0%\n(0)",
                 colors=colors,
                 startangle=90,
-                textprops={"fontsize": 10},
+                textprops={"fontsize": 24},
             )
             ax.axis('equal')
-            ax.set_title('Full-text: No-hate vs Offense vs Hate')
+            # ax.set_title('Full-text: No-hate vs Offense vs Hate')
             fig.tight_layout()
-            fig.savefig(out_dir / 'full_text_threeway_pie.png', dpi=150)
+            fig.savefig(out_dir / 'full_text_threeway_pie.png', dpi=300)
             plt.close(fig)
 
             # Bar distribution: number of hate sentences per paragraph
@@ -252,13 +282,13 @@ def analyze_full_text_dataset(excel_path: str, limit: int = -1) -> Dict:
             xs = sorted(dist.keys())
             ys = [dist[x] for x in xs]
             # Vertical
-            fig, ax = plt.subplots(figsize=(10, 5))
+            fig, ax = plt.subplots(figsize=(14, 7))
             ax.bar(xs, ys, color='#E15759')
-            ax.set_title('Hate Sentences per Paragraph — Distribution')
+            # ax.set_title('Hate Sentences per Paragraph — Distribution')
             ax.set_xlabel('Hate sentences in paragraph')
             ax.set_ylabel('Number of paragraphs')
             fig.tight_layout()
-            fig.savefig(out_dir / 'full_text_hate_per_paragraph_bar.png', dpi=150)
+            fig.savefig(out_dir / 'full_text_hate_per_paragraph_bar.png', dpi=300)
             plt.close(fig)
 
             # # Horizontal
@@ -271,7 +301,7 @@ def analyze_full_text_dataset(excel_path: str, limit: int = -1) -> Dict:
             # ax.set_xlabel('Number of paragraphs')
             # ax.set_ylabel('Hate sentences in paragraph')
             # fig.tight_layout()
-            # fig.savefig(horiz_dir / 'full_text_hate_per_paragraph_bar_h.png', dpi=150)
+            # fig.savefig(horiz_dir / 'full_text_hate_per_paragraph_bar_h.png', dpi=300)
             # plt.close(fig)
     except Exception as e:
         print(f"[WARN] Plotting (full-text) failed: {e}")
@@ -352,22 +382,28 @@ def analyze_single_sentence_dataset(excel_path: str, limit: int = -1) -> Dict:
             # horiz_dir = out_dir / "horizontal"
             # horiz_dir.mkdir(parents=True, exist_ok=True)
 
-            # Bar chart per-category
+            # Bar chart per-category (horizontal for readability)
             cats = list(range(1, 8))
             values = [per_cat[c] for c in cats]
             labels = [code_to_label_en(str(c)) for c in cats]
-            wrapped = [textwrap.fill(lbl, width=18) for lbl in labels]
+            wrapped = [wrap_two_lines(lbl, base_width=20) for lbl in labels]
 
-            # Vertical
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.bar(range(len(cats)), values, color='#55A868')
-            ax.set_xticks(range(len(cats)))
-            ax.set_xticklabels(wrapped, rotation=0, ha='center', fontsize=9)
-            ax.set_title('Single-sentence: Per-category Counts (Hate only)')
-            ax.set_xlabel('Category')
-            ax.set_ylabel('Sentence count')
+            fig, ax = plt.subplots(figsize=(14, 8))
+            bars = ax.barh(range(len(cats)), values, color='#55A868')
+            ax.set_yticks(range(len(cats)))
+            ax.set_yticklabels(wrapped, fontsize=24)
+            ax.invert_yaxis()
+            ax.set_xlabel('Sentence count')
+            ax.set_ylabel('Category')
+            # Show counts at end of bars
+            try:
+                ax.bar_label(bars, fmt='%d', padding=4, fontsize=24)
+            except Exception:
+                pass
+            # Extra left margin for long labels
+            plt.subplots_adjust(left=0.30)
             fig.tight_layout()
-            fig.savefig(out_dir / 'single_category_bar.png', dpi=150)
+            fig.savefig(out_dir / 'single_category_bar.png', dpi=300)
             plt.close(fig)
 
             # # Horizontal
@@ -380,7 +416,7 @@ def analyze_single_sentence_dataset(excel_path: str, limit: int = -1) -> Dict:
             # ax.set_xlabel('Sentence count')
             # ax.set_ylabel('Category')
             # fig.tight_layout()
-            # fig.savefig(horiz_dir / 'single_category_bar_h.png', dpi=150)
+            # fig.savefig(horiz_dir / 'single_category_bar_h.png', dpi=300)
             # plt.close(fig)
 
             # Bar chart per-subcategory (if any)
@@ -388,17 +424,22 @@ def analyze_single_sentence_dataset(excel_path: str, limit: int = -1) -> Dict:
                 sub_keys = sorted(per_sub.keys())
                 sub_vals = [per_sub[k] for k in sub_keys]
                 sub_labels = [code_to_label_en(k) for k in sub_keys]
-                sub_wrapped = [textwrap.fill(lbl, width=16) for lbl in sub_labels]
-                # Vertical
-                fig, ax = plt.subplots(figsize=(12, 6))
-                ax.bar(range(len(sub_keys)), sub_vals, color='#C44E52')
-                ax.set_xticks(range(len(sub_keys)))
-                ax.set_xticklabels(sub_wrapped, rotation=0, ha='center', fontsize=9)
-                ax.set_title('Single-sentence: Per-subcategory Counts (Hate only)')
-                ax.set_xlabel('Subcategory')
-                ax.set_ylabel('Sentence count')
+                sub_wrapped = [wrap_two_lines(lbl, base_width=18) for lbl in sub_labels]
+                # Horizontal for readability
+                fig, ax = plt.subplots(figsize=(16, 9))
+                bars = ax.barh(range(len(sub_keys)), sub_vals, color='#C44E52')
+                ax.set_yticks(range(len(sub_keys)))
+                ax.set_yticklabels(sub_wrapped, fontsize=24)
+                ax.invert_yaxis()
+                ax.set_xlabel('Sentence count')
+                ax.set_ylabel('Subcategory')
+                try:
+                    ax.bar_label(bars, fmt='%d', padding=4, fontsize=24)
+                except Exception:
+                    pass
+                plt.subplots_adjust(left=0.35)
                 fig.tight_layout()
-                fig.savefig(out_dir / 'single_subcategory_bar.png', dpi=150)
+                fig.savefig(out_dir / 'single_subcategory_bar.png', dpi=300)
                 plt.close(fig)
 
                 # # Horizontal
@@ -411,7 +452,7 @@ def analyze_single_sentence_dataset(excel_path: str, limit: int = -1) -> Dict:
                 # ax.set_xlabel('Sentence count')
                 # ax.set_ylabel('Subcategory')
                 # fig.tight_layout()
-                # fig.savefig(horiz_dir / 'single_subcategory_bar_h.png', dpi=150)
+                # fig.savefig(horiz_dir / 'single_subcategory_bar_h.png', dpi=300)
                 # plt.close(fig)
 
             # (Removed) Pie chart for single-sentence three-way breakdown per request
