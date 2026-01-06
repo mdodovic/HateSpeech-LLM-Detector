@@ -379,10 +379,15 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
     }
 
 
-def run(excel_path: str, models: List[str] = []) -> None:
+def run(excel_path: str, models: List[str] = [], debug: int = 0) -> None:
     """Pokreni evaluaciju za više LLM-ova i prikaži metrike."""
     print("Učitavam dataset iz Excel fajla…")
     records = load_excel_dataset(excel_path)
+
+    # Ograniči na jedan pasus (za sada)
+    if debug > 0 and len(records) > debug:
+        print(f"VAŽNO: Ograničavam na prva {debug} uzorak iz razloga testiranja.")
+        records = records[:debug]
 
     # Izgradi mapiranje ime->tag (ako models nije zadan, koristi sve iz JSON-a)
     model_tags: Dict[str, str] = build_model_tags(models)
