@@ -26,9 +26,9 @@ from src.utils import load_excel_dataset, build_model_tags
 from src.evaluation import HateSpeechEvaluator
 
 # Constants
-DATASET_PATH = "data/single_sentence_hate_speech_labeled_samples_small.xlsx"
+DATASET_PATH = "data/single_sentence_hate_speech.xlsx"
 RESULTS_XLSX = "results/single_sentence_ensemble.xlsx"
-USE_ONE_PROMPT = True  # Set False to use two-prompt (slower)
+USE_ONE_PROMPT = False  # Set False to use two-prompt (slower)
 MODEL_SUBSET: List[str] = []  # Empty -> use all from JSON
 
 
@@ -61,12 +61,18 @@ def _majority(values: List) -> Tuple:
     return chosen, max_count
 
 
-def perform_ensemble():
+def perform_ensemble(debug: int = 0):
     print("=" * 70)
     print("Fixed Ensemble Run")
     print("=" * 70)
 
     records = load_excel_dataset(DATASET_PATH)
+
+    # Ograniči na jedan pasus (za sada)
+    if debug > 0 and len(records) > debug:
+        print(f"VAŽNO: Ograničavam na prva {debug} uzorak iz razloga testiranja.")
+        records = records[:debug]
+
     model_tags = build_model_tags(MODEL_SUBSET)
     categories_prompt = get_category_prompt()
 
