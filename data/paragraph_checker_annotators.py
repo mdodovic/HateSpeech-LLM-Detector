@@ -102,6 +102,9 @@ def process_excel(file_path: Path, sample_filter: str | int | None = None, only_
 
     print(f"Annotators found: {', '.join(annotator_cols.keys())}\n")
 
+    total = 0
+    printed = 0
+
     for _, row in df.iterrows():
         sample_id = row.get(id_col, _)
         if sample_filter is not None and str(sample_id) != str(sample_filter):
@@ -110,6 +113,7 @@ def process_excel(file_path: Path, sample_filter: str | int | None = None, only_
         text = row.get(text_col, '')
         sentences = split_sentences(text)
         n_sent = len(sentences)
+        total += 1
 
         # Parse categories for each annotator
         ann_cats = {}
@@ -127,6 +131,8 @@ def process_excel(file_path: Path, sample_filter: str | int | None = None, only_
 
         if only_mismatch and not any_mismatch:
             continue
+
+        printed += 1
 
         # Header
         print(f"sample: {sample_id}")
@@ -157,6 +163,8 @@ def process_excel(file_path: Path, sample_filter: str | int | None = None, only_
             print(f"{idx_str}  {'     '.join(parts)}   {sent}")
 
         print("-" * 100)
+
+    print(f"\nDone. Total samples: {total} | Printed (severe problems): {printed}")
 
     # Summary of mismatches
     print("\nSummary of mismatches:")
