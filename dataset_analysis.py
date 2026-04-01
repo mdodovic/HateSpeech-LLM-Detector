@@ -55,15 +55,12 @@ def wrap_two_lines(lbl: str, base_width: int = 20) -> str:
 def split_sentences(text: str) -> List[str]:
     """Split text into sentences without dropping punctuation.
 
-    Mirrors the regex used in data/paragraph_checker.py.
+    Mirrors the regex used in data/paragraph_checker_annotators.py.
     """
     s = (text or "").strip()
     if not s:
         return []
-    pattern = (
-        r"(?<=[.!?…])\s+(?=(?:[A-Za-zČĆŠĐŽčćšđž\u0400-\u04FF0-9'\"“”„‘’()]|"
-        r"[\u2600-\u26FF\u2700-\u27BF\U0001F1E6-\U0001F1FF\U0001F300-\U0001F5FF\U0001F600-\U0001F64F\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF\U0001FA70-\U0001FAFF]))"
-    )
+    pattern = "(?<=[.!?…])\\.*[,;\\s]*(?=(?:[A-Za-zČĆŠĐŽčćšđž\\u0400-\\u04FF0-9@#:'\"""„''()]|[\\u2600-\\u26FF\\u2700-\\u27BF\\U0001F1E6-\\U0001F1FF\\U0001F300-\\U0001F5FF\\U0001F600-\\U0001F64F\\U0001F680-\\U0001F6FF\\U0001F900-\\U0001F9FF\\U0001FA70-\\U0001FAFF]))"
     parts = re.split(pattern, s)
     return [p.strip() for p in parts if p and p.strip()]
 
@@ -154,15 +151,18 @@ def analyze_full_text_dataset(excel_path: str, limit: int = -1) -> Dict:
     # Three-way (mutually exclusive) counts with priority: HATE > OFFENSE > NO-HATE
     threeway = {"hate": 0, "offense": 0, "no_hate": 0}
 
-    for rec in records:
+    for i, rec in enumerate(records):
         text = (rec.get("text") or "").strip()
         sents = split_sentences(text)
         split_counts.append(len(sents))
+        if len(sents) == 2:
+            print(f"[SENTENCE SPLIT] Sample ID {rec.get('id', 'N/A')} (Index {i}) split into 2 sentences: {sents}")
 
         raw_cell = rec.get("category_raw", "")
         entries = split_gt_entries(raw_cell)
         gt_counts.append(len(entries))
         if len(entries) != len(sents):
+            print(f"[MISMATCH] Sample ID {rec.get('id', 'N/A')} (Index {i}): Split into {len(sents)} sentences but has {len(entries)} GT entries.")
             mismatch += 1
 
         # Count per-sentence categories (exclude 0) and three-way bucket
@@ -244,19 +244,6 @@ def analyze_full_text_dataset(excel_path: str, limit: int = -1) -> Dict:
             labels = [code_to_label_en(str(c)) for c in cats]
             wrapped = [textwrap.fill(lbl, width=18) for lbl in labels]
 
-            # # Horizontal (categories on left, numbers on x-axis)
-            # fig, ax = plt.subplots(figsize=(10, 6))
-            # ax.barh(range(len(cats)), values, color='#4C72B0')
-            # ax.set_yticks(range(len(cats)))
-            # ax.set_yticklabels(wrapped, fontsize=9)
-            # ax.invert_yaxis()
-            # ax.set_title('Per-category Sentence Counts (Hate only)')
-            # ax.set_xlabel('Sentence count')
-            # ax.set_ylabel('Category')
-            # fig.tight_layout()
-            # fig.savefig(horiz_dir / 'full_text_category_bar_h.png', dpi=300)
-            # plt.close(fig)
-
             # Pie chart (three-way)
             sizes = [threeway["no_hate"], threeway["offense"], threeway["hate"]]
             labels = ["No hate", "Offense", "Hate speech"]
@@ -291,18 +278,6 @@ def analyze_full_text_dataset(excel_path: str, limit: int = -1) -> Dict:
             fig.savefig(out_dir / 'full_text_hate_per_paragraph_bar.png', dpi=300)
             plt.close(fig)
 
-            # # Horizontal
-            # fig, ax = plt.subplots(figsize=(10, 6))
-            # ax.barh(range(len(xs)), ys, color='#E15759')
-            # ax.set_yticks(range(len(xs)))
-            # ax.set_yticklabels([str(x) for x in xs])
-            # ax.invert_yaxis()
-            # ax.set_title('Hate Sentences per Paragraph — Distribution')
-            # ax.set_xlabel('Number of paragraphs')
-            # ax.set_ylabel('Hate sentences in paragraph')
-            # fig.tight_layout()
-            # fig.savefig(horiz_dir / 'full_text_hate_per_paragraph_bar_h.png', dpi=300)
-            # plt.close(fig)
     except Exception as e:
         print(f"[WARN] Plotting (full-text) failed: {e}")
 
@@ -406,19 +381,6 @@ def analyze_single_sentence_dataset(excel_path: str, limit: int = -1) -> Dict:
             fig.savefig(out_dir / 'single_category_bar.png', dpi=300)
             plt.close(fig)
 
-            # # Horizontal
-            # fig, ax = plt.subplots(figsize=(10, 6))
-            # ax.barh(range(len(cats)), values, color='#55A868')
-            # ax.set_yticks(range(len(cats)))
-            # ax.set_yticklabels(wrapped, fontsize=9)
-            # ax.invert_yaxis()
-            # ax.set_title('Single-sentence: Per-category Counts (Hate only)')
-            # ax.set_xlabel('Sentence count')
-            # ax.set_ylabel('Category')
-            # fig.tight_layout()
-            # fig.savefig(horiz_dir / 'single_category_bar_h.png', dpi=300)
-            # plt.close(fig)
-
             # Bar chart per-subcategory (if any)
             if per_sub:
                 sub_keys = sorted(per_sub.keys())
@@ -442,19 +404,6 @@ def analyze_single_sentence_dataset(excel_path: str, limit: int = -1) -> Dict:
                 fig.savefig(out_dir / 'single_subcategory_bar.png', dpi=300)
                 plt.close(fig)
 
-                # # Horizontal
-                # fig, ax = plt.subplots(figsize=(12, 8))
-                # ax.barh(range(len(sub_keys)), sub_vals, color='#C44E52')
-                # ax.set_yticks(range(len(sub_keys)))
-                # ax.set_yticklabels(sub_wrapped, fontsize=9)
-                # ax.invert_yaxis()
-                # ax.set_title('Single-sentence: Per-subcategory Counts (Hate only)')
-                # ax.set_xlabel('Sentence count')
-                # ax.set_ylabel('Subcategory')
-                # fig.tight_layout()
-                # fig.savefig(horiz_dir / 'single_subcategory_bar_h.png', dpi=300)
-                # plt.close(fig)
-
             # (Removed) Pie chart for single-sentence three-way breakdown per request
     except Exception as e:
         print(f"[WARN] Plotting (single) failed: {e}")
@@ -468,18 +417,81 @@ def analyze_single_sentence_dataset(excel_path: str, limit: int = -1) -> Dict:
     }
 
 
+def analyze_annotator_agreement(excel_path: str) -> Dict:
+    """Compare Annotator1 vs Annotator2 at sample and sentence level."""
+    print("\n=== ANNOTATOR AGREEMENT (Annotator1 vs Annotator2) ===")
+    df = pd.read_excel(excel_path)
+
+    # Resolve columns
+    id_col = "ID"
+    text_col = "Text"
+    a1_col = "Annotator1"
+    a2_col = "Annotator2"
+    for c in df.columns:
+        cl = str(c).lower()
+        if "annotator1" in cl or "anotator1" in cl:
+            a1_col = c
+        elif "annotator2" in cl or "anotator2" in cl:
+            a2_col = c
+
+    n_samples = len(df)
+    samples_differ = 0
+    sentences_total = 0
+    sentences_differ = 0
+    diff_sample_ids: List = []
+
+    for _, row in df.iterrows():
+        sample_id = row.get(id_col, _)
+        text = str(row.get(text_col, "") or "")
+        sents = split_sentences(text)
+        cats1 = split_gt_entries(str(row.get(a1_col, "") or ""))
+        cats2 = split_gt_entries(str(row.get(a2_col, "") or ""))
+
+        n = min(len(sents), len(cats1), len(cats2))
+        sentences_total += n
+
+        sample_has_diff = False
+        for i in range(n):
+            if cats1[i].strip().lower() != cats2[i].strip().lower():
+                sentences_differ += 1
+                sample_has_diff = True
+
+        # Also flag if lengths differ (beyond the min overlap)
+        if len(cats1) != len(cats2):
+            sample_has_diff = True
+
+        if sample_has_diff:
+            samples_differ += 1
+            diff_sample_ids.append(sample_id)
+
+    print(f"Total samples: {n_samples}")
+    print(f"Samples with different annotations: {samples_differ} ({100*samples_differ/n_samples:.1f}%)")
+    print(f"Total sentences compared: {sentences_total}")
+    print(f"Sentences with different annotations: {sentences_differ} ({100*sentences_differ/sentences_total:.1f}%)")
+
+    return {
+        "n_samples": n_samples,
+        "samples_differ": samples_differ,
+        "sentences_total": sentences_total,
+        "sentences_differ": sentences_differ,
+        "diff_sample_ids": diff_sample_ids,
+    }
+
+
 # --- Default run (no CLI params) ---
 
+DEFAULT_ANNOTATORS_DATASET_FULL_PATH = "data/access_paragraph_hate_speech_with_offenses.xlsx"
 DEFAULT_FULL_PATH = "data/paragraph_hate_speech_with_offenses.xlsx"
 
-DEFAULT_SINGLE_PATH = "data/single_sentence_hate_speech.xlsx"
-DEFAULT_OUT_PATH = "results/dataset_analysis.xlsx"
+DEFAULT_SINGLE_PATH = "data/single_sentence_hate_speech_with_offenses.xlsx"
+DEFAULT_OUT_PATH = "results/test_dataset_analysis.xlsx"
 
 
 def main():
     # Run full analysis on both datasets using defaults
     full_res = analyze_full_text_dataset(DEFAULT_FULL_PATH)
     single_res = analyze_single_sentence_dataset(DEFAULT_SINGLE_PATH)
+    agreement_res = analyze_annotator_agreement(DEFAULT_ANNOTATORS_DATASET_FULL_PATH)
 
     # Always export a tidy Excel summary
     Path(DEFAULT_OUT_PATH).parent.mkdir(parents=True, exist_ok=True)
