@@ -116,10 +116,8 @@ def build_paragraph_dataset(df: pd.DataFrame, id_col, text_col, annotator_cols, 
             category = raw3
 
         if remove_offense:
-            # Replace standalone U with 0 in the raw string
-            parts = split_categories(category)
-            parts = [normalize_category(p, remove_offense=True) for p in parts]
-            category = ','.join(parts)
+            # Replace standalone U with 0, preserving brackets and delimiters
+            category = re.sub(r'(?<![A-Za-z])U(?![A-Za-z])', '0', category)
 
         rows.append({
             'ID': sample_id,
