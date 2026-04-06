@@ -112,19 +112,21 @@ def evaluate(df: pd.DataFrame):
         y_true_bin.append(gt_hate)
         y_pred_bin.append(pr_hate)
 
-        # Category: all samples where GT has hate (gt != 0)
+        # Category & Subcategory: all samples where GT has hate (gt != 0)
         if gt_hate:
             gt_cat, gt_sub, pr_cat, pr_sub = _best_match(gt_codes, pr_codes)
 
             y_true_cat.append(gt_cat)
             y_pred_cat.append(pr_cat)
 
-            # Subcategory: only when top-level category matches
+            gt_sub_code = f"{gt_cat}{gt_sub}" if gt_sub else str(gt_cat)
+            # If category doesn't match, subcategory is automatically wrong
             if gt_cat == pr_cat:
-                gt_sub_code = f"{gt_cat}{gt_sub}" if gt_sub else str(gt_cat)
                 pr_sub_code = f"{pr_cat}{pr_sub}" if pr_sub else str(pr_cat)
-                y_true_sub.append(gt_sub_code)
-                y_pred_sub.append(pr_sub_code)
+            else:
+                pr_sub_code = f"{pr_cat}{pr_sub}" if pr_sub else str(pr_cat)
+            y_true_sub.append(gt_sub_code)
+            y_pred_sub.append(pr_sub_code)
 
     evaluator = HateSpeechEvaluator()
 
@@ -140,8 +142,7 @@ def evaluate(df: pd.DataFrame):
     print("=" * 50)
 
     print(f"\nTotal samples: {len(df)}")
-    print(f"GT has hate (category eval): {len(y_true_cat)}")
-    print(f"Category match (subcategory eval): {len(y_true_sub)}")
+    print(f"GT has hate (category & subcategory eval): {len(y_true_cat)}")
 
     print("\n--- Task 1: Binary Detection (hate / no-hate) ---")
     print(f"  Accuracy: {binary_metrics['accuracy']:.4f}")
@@ -151,7 +152,7 @@ def evaluate(df: pd.DataFrame):
     print(f"  Accuracy: {category_metrics['accuracy']:.4f}")
     print(f"  F1 micro: {category_metrics['f1']:.4f}")
 
-    print("\n--- Task 3: Subcategory Classification (where category matches) ---")
+    print("\n--- Task 3: Subcategory Classification (GT hate only, category mismatch = fail) ---")
     print(f"  Accuracy: {subcategory_metrics['accuracy']:.4f}")
     print(f"  F1 micro: {subcategory_metrics['f1']:.4f}")
 
