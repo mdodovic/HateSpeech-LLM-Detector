@@ -144,15 +144,15 @@ def evaluate(df: pd.DataFrame):
     print(f"\nTotal samples: {len(df)}")
     print(f"GT has hate (category & subcategory eval): {len(y_true_cat)}")
 
-    print("\n--- Task 1: Binary Detection (hate / no-hate) ---")
+    print("\n--- Task 1: Binary Detection ---")
     print(f"  Accuracy: {binary_metrics['accuracy']:.4f}")
     print(f"  F1:       {binary_metrics['f1']:.4f}")
 
-    print("\n--- Task 2: Category Classification (1-7, GT hate only) ---")
+    print("\n--- Task 2: Category Classification ---")
     print(f"  Accuracy: {category_metrics['accuracy']:.4f}")
     print(f"  F1 micro: {category_metrics['f1']:.4f}")
 
-    print("\n--- Task 3: Subcategory Classification (GT hate only, category mismatch = fail) ---")
+    print("\n--- Task 3: Subcategory Classification ---")
     print(f"  Accuracy: {subcategory_metrics['accuracy']:.4f}")
     print(f"  F1 micro: {subcategory_metrics['f1']:.4f}")
 
@@ -168,16 +168,37 @@ def evaluate(df: pd.DataFrame):
     }
 
 
+def save_results_to_excel(results: dict, output_path: str):
+    """Save evaluation metrics to an Excel file."""
+    rows = []
+    for task, metrics in results.items():
+        for metric_name, value in metrics.items():
+            rows.append({
+                "Task": task,
+                "Metric": metric_name,
+                "Value": value,
+            })
+    df = pd.DataFrame(rows)
+    df.to_excel(output_path, index=False, sheet_name="Results")
+    print(f"\nResults saved to: {output_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate Gemini LLM predictions against ground truth")
     parser.add_argument("--gt", default="data/single_sentence_hate_speech_no_offenses.xlsx",
                         help="Ground-truth Excel file")
     parser.add_argument("--llm", default="data/single_sentence_llm_predictions.xlsx",
                         help="LLM predictions Excel file")
+    parser.add_argument("--output", "-o", default="results/gemini_results.xlsx",
+                        help="Output Excel path for results")
     args = parser.parse_args()
 
     df = load_and_align(args.gt, args.llm)
-    evaluate(df)
+    results = evaluate(df)
+
+    from pathlib import Path
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    save_results_to_excel(results, args.output)
 
 
 if __name__ == "__main__":
