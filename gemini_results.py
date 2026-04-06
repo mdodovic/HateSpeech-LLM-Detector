@@ -50,7 +50,12 @@ def _best_match(gt_codes: List[Tuple[int, str]], pr_codes: List[Tuple[int, str]]
     best = None
     best_score = -1  # 0=no match, 1=category match, 2=subcategory match
 
-    for gt_cat, gt_sub in gt_codes:
+    # Only consider non-zero GT codes (hate codes)
+    gt_hate_codes = [(c, s) for c, s in gt_codes if c != 0]
+    if not gt_hate_codes:
+        gt_hate_codes = gt_codes
+
+    for gt_cat, gt_sub in gt_hate_codes:
         for pr_cat, pr_sub in pr_codes:
             gt_sub_code = f"{gt_cat}{gt_sub}" if gt_sub else str(gt_cat)
             pr_sub_code = f"{pr_cat}{pr_sub}" if pr_sub else str(pr_cat)
@@ -107,15 +112,19 @@ def evaluate(df: pd.DataFrame):
         y_true_bin.append(gt_hate)
         y_pred_bin.append(pr_hate)
 
-        gt_cat, gt_sub, pr_cat, pr_sub = _best_match(gt_codes, pr_codes)
+        # Category: all samples where GT has hate (gt != 0)
+        if gt_hate:
+            gt_cat, gt_sub, pr_cat, pr_sub = _best_match(gt_codes, pr_codes)
 
-        y_true_cat.append(gt_cat)
-        y_pred_cat.append(pr_cat)
+            y_true_cat.append(gt_cat)
+            y_pred_cat.append(pr_cat)
 
-        gt_sub_code = f"{gt_cat}{gt_sub}" if gt_sub else str(gt_cat)
-        pr_sub_code = f"{pr_cat}{pr_sub}" if pr_sub else str(pr_cat)
-        y_true_sub.append(gt_sub_code)
-        y_pred_sub.append(pr_sub_code)
+            # Subcategory: only when top-level category matches
+            if gt_cat == pr_cat:
+                gt_sub_code = f"{gt_cat}{gt_sub}" if gt_sub else str(gt_cat)
+                pr_sub_code = f"{pr_cat}{pr_sub}" if pr_sub else str(pr_cat)
+                y_true_sub.append(gt_sub_code)
+                y_pred_sub.append(pr_sub_code)
 
     evaluator = HateSpeechEvaluator()
 
@@ -123,27 +132,32 @@ def evaluate(df: pd.DataFrame):
     category_metrics = evaluator.evaluate_multiclass_classification(y_true_cat, y_pred_cat)
     subcategory_metrics = evaluator.evaluate_multiclass_classification(y_true_sub, y_pred_sub)
 
+    # Build category report excluding 0
+    hate_categories = {k: v for k, v in HATE_SPEECH_CATEGORIES_EN.items() if k != 0}
+
     print("=" * 50)
     print("Gemini LLM vs Ground Truth — Single Sentence")
     print("=" * 50)
 
-    print(f"\nSamples: {len(df)}")
+    print(f"\nTotal samples: {len(df)}")
+    print(f"GT has hate (category eval): {len(y_true_cat)}")
+    print(f"Category match (subcategory eval): {len(y_true_sub)}")
 
     print("\n--- Task 1: Binary Detection (hate / no-hate) ---")
     print(f"  Accuracy: {binary_metrics['accuracy']:.4f}")
     print(f"  F1:       {binary_metrics['f1']:.4f}")
 
-    print("\n--- Task 2: Category Classification (0-7) ---")
+    print("\n--- Task 2: Category Classification (1-7, GT hate only) ---")
     print(f"  Accuracy: {category_metrics['accuracy']:.4f}")
     print(f"  F1 micro: {category_metrics['f1']:.4f}")
 
-    print("\n--- Task 3: Subcategory Classification ---")
+    print("\n--- Task 3: Subcategory Classification (where category matches) ---")
     print(f"  Accuracy: {subcategory_metrics['accuracy']:.4f}")
     print(f"  F1 micro: {subcategory_metrics['f1']:.4f}")
 
-    # Detailed classification report for categories
-    print("\n--- Category Classification Report ---")
-    report = evaluator.generate_classification_report(y_true_cat, y_pred_cat, HATE_SPEECH_CATEGORIES_EN)
+    # Detailed classification report for categories (excluding 0)
+    print("\n--- Category Classification Report (GT hate only) ---")
+    report = evaluator.generate_classification_report(y_true_cat, y_pred_cat, hate_categories)
     print(report)
 
     return {
