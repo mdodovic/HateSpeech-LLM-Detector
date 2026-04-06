@@ -800,10 +800,10 @@ def analyze_source_distribution(excel_path: str) -> Dict:
 # --- Default run (no CLI params) ---
 
 DEFAULT_ANNOTATORS_DATASET_FULL_PATH = "data/access_paragraph_hate_speech_with_offenses.xlsx"
-DEFAULT_FULL_PATH = "data/paragraph_hate_speech_with_offenses.xlsx"
+DEFAULT_FULL_PATH = "data/paragraph_hate_speech_offenses.xlsx"
 
-DEFAULT_SINGLE_PATH = "data/single_sentence_hate_speech_with_offenses.xlsx"
-DEFAULT_OUT_PATH = "results/test_dataset_analysis.xlsx"
+DEFAULT_SINGLE_PATH = "data/single_sentence_hate_speech_offenses.xlsx"
+DEFAULT_OUT_PATH = "results/complete_dataset_analysis.xlsx"
 
 
 def main():
@@ -843,6 +843,18 @@ def main():
             ) if single_res["per_sub"] else pd.DataFrame(columns=["subcategory", "count"])
             df_single_cat.to_excel(writer, index=False, sheet_name="Single_CatCounts")
             df_single_sub.to_excel(writer, index=False, sheet_name="Single_SubCounts")
+        if agreement_res:
+            df_agreement = pd.DataFrame([
+                {"metric": "samples_differ", "value": agreement_res["samples_differ"]},
+                {"metric": "sentences_differ", "value": agreement_res["sentences_differ"]},
+                {"metric": "cohen_kappa_binary", "value": agreement_res["agreement_scores"]["binary"]["cohen_kappa"]},
+                {"metric": "krippendorff_alpha_binary", "value": agreement_res["agreement_scores"]["binary"]["krippendorff_alpha"]},
+                {"metric": "cohen_kappa_threeway", "value": agreement_res["agreement_scores"]["threeway"]["cohen_kappa"]},
+                {"metric": "krippendorff_alpha_threeway", "value": agreement_res["agreement_scores"]["threeway"]["krippendorff_alpha"]},
+                {"metric": "cohen_kappa_top_category", "value": agreement_res["agreement_scores"]["top_category"]["cohen_kappa"]},
+                {"metric": "krippendorff_alpha_top_category", "value": agreement_res["agreement_scores"]["top_category"]["krippendorff_alpha"]},
+            ])
+            df_agreement.to_excel(writer, index=False, sheet_name="Annotator_Agreement")
         if source_res and source_res.get("counts"):
             df_source = pd.DataFrame(
                 {"source": list(source_res["counts"].keys()), "count": list(source_res["counts"].values())}
