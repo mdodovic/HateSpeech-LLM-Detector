@@ -19,7 +19,6 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
-from scipy.special import softmax
 from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.metrics import (
@@ -320,25 +319,6 @@ def main():
     for key, value in sorted(metrics.items()):
         print(f"  {key}: {value:.4f}" if isinstance(value, float) else f"  {key}: {value}")
 
-    # ── Threshold tuning on validation set ─────────────────────────────
-    print("\n" + "=" * 60)
-    print("Threshold tuning on validation set:")
-    print("=" * 60)
-    val_output = trainer.predict(val_dataset)
-    val_probs = softmax(val_output.predictions, axis=1)[:, 1]
-
-    best_t, best_f1_val = 0.5, 0.0
-    for t in np.arange(0.10, 0.91, 0.01):
-        vp = (val_probs >= t).astype(int)
-        f = f1_score(val_labels, vp, average="binary", zero_division=0)
-        if f > best_f1_val:
-            best_f1_val, best_t = f, t
-
-    print(f"  Best threshold: {best_t:.2f}")
-    print(f"  Val F1 at best threshold: {best_f1_val:.4f}")
-    print(f"  Val F1 at default 0.50:   "
-          f"{f1_score(val_labels, (val_probs >= 0.5).astype(int), average='binary', zero_division=0):.4f}")
-
     # ── Test set results ─────────────────────────────────────────────────
     print("\n" + "=" * 60)
     print("TEST SET results (IDs 1-101):")
@@ -347,70 +327,43 @@ def main():
     for key, value in sorted(test_output.metrics.items()):
         print(f"  {key}: {value:.4f}" if isinstance(value, float) else f"  {key}: {value}")
 
-    test_probs = softmax(test_output.predictions, axis=1)[:, 1]
-
-    # ── Default threshold (argmax = 0.5) ─────────────────────────────────
+    # ── Strict + Best-case evaluation ────────────────────────────────
     test_preds = np.argmax(test_output.predictions, axis=1)
-    evaluate_binary(test_preds, test_labels, test_ambiguous,
-                    split_name="TEST (threshold=0.50)")
-
-    # ── Optimal threshold from validation ────────────────────────────────
-    test_preds_opt = (test_probs >= best_t).astype(int)
-    evaluate_binary(test_preds_opt, test_labels, test_ambiguous,
-                    split_name=f"TEST (threshold={best_t:.2f})")
+    evaluate_binary(test_preds, test_labels, test_ambiguous, split_name="TEST")
 
     # ── Save results to xlsx ──────────────────────────────────────────
     label_map = {0: "No hate", 1: "Hate"}
     best_labels = test_labels.copy()
-    best_labels[test_ambiguous] = test_preds_opt[test_ambiguous]
+    best_labels[test_ambiguous] = test_preds[test_ambiguous]
 
     df_results = pd.DataFrame({
         "ID": df_test["ID"].values,
         "Text": df_test["Text"].values,
         "Category": df_test["Category"].values,
         "GT_label": [label_map[l] for l in test_labels],
-        "Pred_default": [label_map[p] for p in test_preds],
-        "Pred_optimal": [label_map[p] for p in test_preds_opt],
-        "Prob_hate": np.round(test_probs, 4),
+        "Predicted_label": [label_map[p] for p in test_preds],
         "Is_ambiguous": test_ambiguous,
-        "Strict_correct_default": (test_preds == test_labels),
-        "Strict_correct_optimal": (test_preds_opt == test_labels),
+        "Strict_correct": (test_preds == test_labels),
+        "BestCase_correct": (test_preds == best_labels),
     })
 
-    # Metrics summary — default threshold
-    strict_metrics_def = {
+    # Metrics summary
+    strict_metrics = {
         "Accuracy": accuracy_score(test_labels, test_preds),
         "F1": f1_score(test_labels, test_preds, average="binary", zero_division=0),
         "Precision": precision_score(test_labels, test_preds, average="binary", zero_division=0),
         "Recall": recall_score(test_labels, test_preds, average="binary", zero_division=0),
     }
-    # Metrics summary — optimal threshold
-    best_labels_def = test_labels.copy()
-    best_labels_def[test_ambiguous] = test_preds[test_ambiguous]
-    bestcase_metrics_def = {
-        "Accuracy": accuracy_score(best_labels_def, test_preds),
-        "F1": f1_score(best_labels_def, test_preds, average="binary", zero_division=0),
-        "Precision": precision_score(best_labels_def, test_preds, average="binary", zero_division=0),
-        "Recall": recall_score(best_labels_def, test_preds, average="binary", zero_division=0),
-    }
-    strict_metrics_opt = {
-        "Accuracy": accuracy_score(test_labels, test_preds_opt),
-        "F1": f1_score(test_labels, test_preds_opt, average="binary", zero_division=0),
-        "Precision": precision_score(test_labels, test_preds_opt, average="binary", zero_division=0),
-        "Recall": recall_score(test_labels, test_preds_opt, average="binary", zero_division=0),
-    }
-    bestcase_metrics_opt = {
-        "Accuracy": accuracy_score(best_labels, test_preds_opt),
-        "F1": f1_score(best_labels, test_preds_opt, average="binary", zero_division=0),
-        "Precision": precision_score(best_labels, test_preds_opt, average="binary", zero_division=0),
-        "Recall": recall_score(best_labels, test_preds_opt, average="binary", zero_division=0),
+    best_metrics = {
+        "Accuracy": accuracy_score(best_labels, test_preds),
+        "F1": f1_score(best_labels, test_preds, average="binary", zero_division=0),
+        "Precision": precision_score(best_labels, test_preds, average="binary", zero_division=0),
+        "Recall": recall_score(best_labels, test_preds, average="binary", zero_division=0),
     }
     df_metrics = pd.DataFrame({
-        "Metric": list(strict_metrics_def.keys()),
-        f"Strict (t=0.50)": list(strict_metrics_def.values()),
-        f"BestCase (t=0.50)": list(bestcase_metrics_def.values()),
-        f"Strict (t={best_t:.2f})": list(strict_metrics_opt.values()),
-        f"BestCase (t={best_t:.2f})": list(bestcase_metrics_opt.values()),
+        "Metric": list(strict_metrics.keys()),
+        "Strict": list(strict_metrics.values()),
+        "Best-case": list(best_metrics.values()),
     })
 
     xlsx_path = args.output
