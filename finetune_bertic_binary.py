@@ -172,6 +172,14 @@ def main():
     parser.add_argument("--output", "-o", default="results/bertic_binary_results.xlsx",
                         help="Output Excel path for results")
     parser.add_argument(
+        "--freeze", type=str, default="none",
+        help="Freeze strategy: none, backbone, embeddings, embeddings+N, N (e.g. 3, 6)",
+    )
+    parser.add_argument("--dropout", type=float, default=0.1,
+                        help="Classifier head dropout (default 0.1, try 0.3-0.5)")
+    parser.add_argument("--weight_decay", type=float, default=0.01,
+                        help="AdamW weight decay (default 0.01, try 0.01-0.1)")
+    parser.add_argument(
         "--sentence_path", type=str,
         default="data/single_sentence_hate_speech_no_offenses.xlsx",
     )
@@ -256,7 +264,44 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name, num_labels=2,
+        classifier_dropout=args.dropout,
+        hidden_dropout_prob=args.dropout,
     )
+    print(f"Classifier dropout: {args.dropout}")
+
+    # ── Layer freezing ───────────────────────────────────────────────────
+    freeze = args.freeze.strip().lower()
+    if freeze != "none":
+        if freeze == "backbone":
+            # Freeze everything except classifier head
+            for name, param in model.named_parameters():
+                if "classifier" not in name:
+                    param.requires_grad = False
+        elif freeze == "embeddings":
+            for name, param in model.named_parameters():
+                if "embeddings" in name:
+                    param.requires_grad = False
+        elif freeze.startswith("embeddings+"):
+            n_layers = int(freeze.split("+")[1])
+            for name, param in model.named_parameters():
+                if "embeddings" in name:
+                    param.requires_grad = False
+                for i in range(n_layers):
+                    if f"encoder.layer.{i}." in name:
+                        param.requires_grad = False
+        elif freeze.isdigit():
+            n_layers = int(freeze)
+            for name, param in model.named_parameters():
+                for i in range(n_layers):
+                    if f"encoder.layer.{i}." in name:
+                        param.requires_grad = False
+        else:
+            raise ValueError(f"Unknown freeze strategy: {freeze}")
+
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in model.parameters())
+        print(f"\nFreeze strategy: {freeze}")
+        print(f"  Trainable params: {trainable:,} / {total:,} ({100*trainable/total:.1f}%)")
 
     # ── Datasets ─────────────────────────────────────────────────────────
     train_dataset = BinaryHateSpeechDataset(
@@ -276,7 +321,7 @@ def main():
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size * 2,
         learning_rate=args.lr,
-        weight_decay=0.01,
+        weight_decay=args.weight_decay,
         warmup_ratio=0.1,
         eval_strategy="epoch",
         save_strategy="epoch",
@@ -291,11 +336,15 @@ def main():
     )
 
     # ── Trainer ──────────────────────────────────────────────────────────
+    print("Using weighted cross-entropy loss")
+
     class WeightedTrainer(Trainer):
         def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
             labels = inputs.pop("labels")
             outputs = model(**inputs)
-            loss = torch.nn.CrossEntropyLoss(weight=class_weights.to(labels.device))(outputs.logits, labels)
+            loss = torch.nn.CrossEntropyLoss(
+                weight=class_weights.to(labels.device),
+            )(outputs.logits, labels)
             return (loss, outputs) if return_outputs else loss
 
     trainer = WeightedTrainer(
