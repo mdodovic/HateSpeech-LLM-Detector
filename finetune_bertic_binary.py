@@ -163,8 +163,8 @@ def main():
         description="Fine-tune BERTić for binary hate speech detection (paragraph context + sentence)",
     )
     parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--lr", type=float, default=2e-5)
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--max_length", type=int, default=512)
     parser.add_argument("--val_split", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
@@ -179,7 +179,7 @@ def main():
                         help="Classifier head dropout (default 0.1, try 0.3-0.5)")
     parser.add_argument("--weight_decay", type=float, default=0.01,
                         help="AdamW weight decay (default 0.01, try 0.01-0.1)")
-    parser.add_argument("--label_smoothing", type=float, default=0.0,
+    parser.add_argument("--label_smoothing", type=float, default=0.1,
                         help="Label smoothing factor (e.g. 0.05-0.1)")
     parser.add_argument(
         "--gradient_accumulation_steps", type=int, default=4,
