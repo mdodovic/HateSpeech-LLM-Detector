@@ -25,8 +25,8 @@ $i = 0
 foreach ($c in $configs) {
     $i++
     $tag = "lr$($c.lr)_bs$($c.bs)_ml$($c.ml)"
-    $xlsx = "results/hp_binary_${tag}.xlsx"
-    $log  = "results/hp_binary_${tag}.txt"
+    $xlsx = "results/hp_binary_notreshold_${tag}.xlsx"
+    $log  = "results/hp_binary_notreshold_${tag}.txt"
 
     Write-Host "`n===== RUN $i/$total : $tag =====" -ForegroundColor Cyan
 
@@ -35,7 +35,7 @@ foreach ($c in $configs) {
         --batch_size $c.bs `
         --max_length $c.ml `
         --output $xlsx `
-        --output_dir "hp_search_runs/$tag" `
+        --output_dir "hp_search_runs_notreshold/$tag" `
         > $log 2>&1
 
     Write-Host "  Exit code: $LASTEXITCODE  ->  $log"
