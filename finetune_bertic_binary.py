@@ -182,6 +182,10 @@ def main():
     parser.add_argument("--label_smoothing", type=float, default=0.0,
                         help="Label smoothing factor (e.g. 0.05-0.1)")
     parser.add_argument(
+        "--gradient_accumulation_steps", type=int, default=4,
+        help="Number of updates steps to accumulate before performing a backward/update pass"
+    )
+    parser.add_argument(
         "--sentence_path", type=str,
         default="data/single_sentence_hate_speech_no_offenses.xlsx",
     )
@@ -321,11 +325,12 @@ def main():
         output_dir=args.output_dir,
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
         per_device_eval_batch_size=args.batch_size * 2,
         learning_rate=args.lr,
         weight_decay=args.weight_decay,
         label_smoothing_factor=args.label_smoothing,
-        warmup_ratio=0.1,
+        warmup_ratio=0.15,
         eval_strategy="epoch",
         save_strategy="epoch",
         logging_strategy="epoch",
