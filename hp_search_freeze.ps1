@@ -20,8 +20,8 @@ $i = 0
 foreach ($c in $configs) {
     $i++
     $tag = "freeze_$($c.freeze)"
-    $xlsx = "results/hp_binary_${tag}.xlsx"
-    $log  = "results/hp_binary_${tag}.txt"
+    $xlsx = "results/bertic/hp_binary_${tag}.xlsx"
+    $log  = "results/bertic/hp_binary_${tag}.txt"
 
     Write-Host "`n===== RUN $i/$total : $tag =====" -ForegroundColor Cyan
 

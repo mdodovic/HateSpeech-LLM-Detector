@@ -169,7 +169,7 @@ def main():
     parser.add_argument("--val_split", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output_dir", type=str, default="bertic_finetuned_binary")
-    parser.add_argument("--output", "-o", default="results/bertic_binary_results.xlsx",
+    parser.add_argument("--output", "-o", default="results/bertic/bertic_binary_results.xlsx",
                         help="Output Excel path for results")
     parser.add_argument(
         "--freeze", type=str, default="none",
@@ -179,6 +179,8 @@ def main():
                         help="Classifier head dropout (default 0.1, try 0.3-0.5)")
     parser.add_argument("--weight_decay", type=float, default=0.01,
                         help="AdamW weight decay (default 0.01, try 0.01-0.1)")
+    parser.add_argument("--label_smoothing", type=float, default=0.0,
+                        help="Label smoothing factor (e.g. 0.05-0.1)")
     parser.add_argument(
         "--sentence_path", type=str,
         default="data/single_sentence_hate_speech_no_offenses.xlsx",
@@ -322,6 +324,7 @@ def main():
         per_device_eval_batch_size=args.batch_size * 2,
         learning_rate=args.lr,
         weight_decay=args.weight_decay,
+        label_smoothing_factor=args.label_smoothing,
         warmup_ratio=0.1,
         eval_strategy="epoch",
         save_strategy="epoch",
@@ -344,6 +347,7 @@ def main():
             outputs = model(**inputs)
             loss = torch.nn.CrossEntropyLoss(
                 weight=class_weights.to(labels.device),
+                label_smoothing=args.label_smoothing,
             )(outputs.logits, labels)
             return (loss, outputs) if return_outputs else loss
 

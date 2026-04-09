@@ -25,8 +25,8 @@ $i = 0
 foreach ($c in $configs) {
     $i++
     $tag = "lr$($c.lr)_bs$($c.bs)_ml$($c.ml)"
-    $xlsx = "results/hp_binary_notreshold_${tag}.xlsx"
-    $log  = "results/hp_binary_notreshold_${tag}.txt"
+    $xlsx = "results/bertic/hp_binary_notreshold_${tag}.xlsx"
+    $log  = "results/bertic/hp_binary_notreshold_${tag}.txt"
 
     Write-Host "`n===== RUN $i/$total : $tag =====" -ForegroundColor Cyan
 

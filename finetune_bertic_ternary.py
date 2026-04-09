@@ -189,7 +189,7 @@ def main():
     parser.add_argument("--val_split", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output_dir", type=str, default="bertic_finetuned_ternary")
-    parser.add_argument("--output", "-o", default="results/bertic_ternary_results.xlsx",
+    parser.add_argument("--output", "-o", default="results/bertic/bertic_ternary_results.xlsx",
                         help="Output Excel path for results")
     parser.add_argument(
         "--sentence_path", type=str,
