@@ -2,7 +2,7 @@
 Fine-tune classla/bcms-bertic (ELECTRA) for binary hate speech detection.
 
 Input:  [CLS] full_paragraph [SEP] target_sentence [SEP]
-Output: binary — hate (1) or no hate (0)
+Output: binary - hate (1) or no hate (0)
 
 Data sources:
   - paragraph_hate_speech_no_offenses.xlsx      (paragraphs -> context)
@@ -153,7 +153,7 @@ def evaluate_binary(preds, labels, ambiguous_mask, split_name="TEST"):
             best_labels, preds_int, target_names=["No hate", "Hate"], zero_division=0,
         ))
     else:
-        print("  No ambiguous sentences — best-case = strict.")
+        print("  No ambiguous sentences - best-case = strict.")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
