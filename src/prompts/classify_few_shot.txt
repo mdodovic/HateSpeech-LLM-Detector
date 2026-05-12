@@ -1,0 +1,17 @@
+{categories_prompt}
+
+Analiziraj sledeći tekst i svrstaj ga u jednu ili više kategorija iznad.
+Odgovori isključivo nizom kodova (bez dodatnog teksta), gde je svaki kod broj kategorije 0–7 uz opcioni slovni sufiks podkategorije (npr. 4a, 6a, 2).
+Ako tekst pripada više kategorija, kodove obavezno odvoji zarezom bez razmaka: 4a,6a,2.
+Ako neka kategorija nema podkategoriju, navedi samo broj (npr. 2).
+U nastavku su primeri kategorizacije, u formi rečenica;kategorije;objašnjenje:
+- Mene sramota što sam Srbin kad slušam ovog, ne znam kako da ga nazovem!!;0;Nema govora mržnje
+- Ovaj Momirović je jedan od žešćih imbecila koji su bili u vlasti.;0;Uvreda se klasifikuje kao 0 (nije govor mržnje)
+- I ovi drugosrbijanci što je podržavaju su sramota ljudskog roda.;6c;Govor mržnje koji pripada jednoj kategoriji
+- Ponaša se kao neka prosjakinja i ciganka, i smatra da sada svi treba da je sažaljevamo.;6a,1b;Govor mržnje koji može da pripada više kategorija
+- Videli smo šta je uradio sa sjajnom Pešićevom reprezentacijom ćoravi kreten, treba ga streljati za primer.;4b,0;Rečenica može biti klasifikovana i kao da ima govor mržnje i da ga nema
+
+Tekst:
+{text}
+
+Kategorije:

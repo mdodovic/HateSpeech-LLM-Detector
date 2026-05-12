@@ -2,7 +2,7 @@
 bertic_finetuned**
 hp_search_runs**
 hp_runs**
-
+**sweep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

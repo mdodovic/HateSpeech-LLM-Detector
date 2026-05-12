@@ -214,6 +214,57 @@ class LLMDetector:
 
         return unique_codes
     
+
+    def categorize_hate_speech_few_shot(self, text: str, categories_prompt: str) -> List[str]:
+        """
+        Zadatak 3: Klasifikuj govor mržnje u unapred definisane kategorije, dozvoljeno više.
+
+        Vraća listu kodova poput ["4a", "6a"] ili ["2"] (ako nema podkategorije).
+        """
+        prompt_path = self.prompts_dir / "classify_few_shot.txt"
+        with open(prompt_path, encoding="utf-8") as f:
+            prompt = f.read().strip()  
+
+        prompt = prompt.format(text=text, categories_prompt=categories_prompt)
+
+        response = self.generate_response(prompt, max_new_tokens=self.max_tokens, temperature=self.default_temperature)
+        # Prvo probaj eksplicitnu liniju 'Kategorije: <lista>'
+        codes: List[str] = []
+        m_line = re.search(r"(?im)^\s*kategorije\s*:\s*(.+)$", response)
+        if m_line:
+            raw = m_line.group(1).strip()
+            parts = [p.strip() for p in raw.split(",") if p is not None]
+            for p in parts:
+                p = p.replace(" ", "")
+                if re.match(r"^[0-7][a-z]?$", p, flags=re.IGNORECASE):
+                    codes.append(p.lower())
+
+        # Ako linija nije data ili prazna, pokušaj regex-om svuda
+        if not codes:
+            # Ekstrakcija svih kodova kategorija iz odgovora
+            # Podržava forme: "4a,6a", "Kategorije: 4a, 6a", "4, 6a" itd.
+            codes = re.findall(r"\b([0-7][a-z]?)\b", response, flags=re.IGNORECASE)
+            codes = [c.lower() for c in codes]
+
+        # Ako ništa nije pronađeno, pokušaj da parsiraš polja Kategorija/Podkategorija
+        if not codes:
+            m_cat = re.search(r"(?i)kategorija\s*:\s*([0-7])\b", response)
+            m_sub = re.search(r"(?i)podkategorija\s*:\s*([0-7][a-z])\b", response)
+            if m_sub:
+                codes = [m_sub.group(1).lower()]        
+            elif m_cat:
+                codes = [m_cat.group(1)]
+
+        # Ukloni duplikate uz očuvanje redosleda
+        seen = set()
+        unique_codes: List[str] = []
+        for code in codes:
+            if code not in seen:
+                seen.add(code)
+                unique_codes.append(code)
+
+        return unique_codes
+    
     def detect_and_categorize(self, text: str, categories_prompt: str) -> Dict:
         """Jedan poziv koji detektuje govor mržnje i kategorizuje ga.
 
