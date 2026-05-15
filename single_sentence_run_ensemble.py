@@ -248,10 +248,30 @@ def perform_ensemble(debug: int = 0):
     })
     df_summary = hs_eval.to_dataframe()
     df_detailed = pd.DataFrame(per_record_rows)
+
+    # Build standardised per-sample sheet for bootstrap CI
+    ps_rows = []
+    for row in per_record_rows:
+        gt_has  = bool(row.get("gt_has_hate", False))
+        ens_has = bool(row.get("ensemble_has", False))
+        gt_cat  = int(row.get("gt_category", 0))
+        ens_cat = int(row.get("ensemble_category", 0))
+        gt_sub  = str(row.get("gt_subcategory", "") or "")
+        ens_sub = str(row.get("ensemble_subcategory", "") or "")
+        ps_rows.append({"model": "ensemble", "task": "binary",   "y_true": int(gt_has),  "y_pred": int(ens_has)})
+        ps_rows.append({"model": "ensemble", "task": "category", "y_true": gt_cat,        "y_pred": ens_cat})
+        if gt_cat != 0:
+            ps_rows.append({"model": "ensemble", "task": "subcategory", "y_true": gt_sub, "y_pred": ens_sub})
+    df_ps = pd.DataFrame(ps_rows)
+
     Path("results").mkdir(exist_ok=True)
     with pd.ExcelWriter(RESULTS_XLSX, engine="openpyxl") as writer:
         df_summary.to_excel(writer, index=False, sheet_name="Metrics")
         df_detailed.to_excel(writer, index=False, sheet_name="PerModel")
+        for task in ("binary", "category", "subcategory"):
+            subset = df_ps[df_ps["task"] == task].drop(columns="task").reset_index(drop=True)
+            if not subset.empty:
+                subset.to_excel(writer, index=False, sheet_name=task.capitalize())
     print(f"\nEnsemble results written to: {RESULTS_XLSX}")
 
 

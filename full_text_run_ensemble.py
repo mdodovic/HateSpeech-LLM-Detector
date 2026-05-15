@@ -364,10 +364,33 @@ def perform_ensemble(excel_path: str = DATASET_PATH, models: List[str] = MODEL_S
     })
     df_summary = hs_eval.to_dataframe()
     df_detailed = pd.DataFrame(per_sentence_rows)
+
+    # Build standardised per-sample sheet for bootstrap CI
+    ps_rows = []
+    for row in per_sentence_rows:
+        # gt_codes is a semicolon-joined string like "0", "1a;0", etc.
+        gt_codes_str = str(row.get("gt_codes", "0") or "0")
+        gt_codes_list = [c.strip() for c in gt_codes_str.split(";") if c.strip()]
+        gt_has  = any(c != "0" for c in gt_codes_list)
+        gt_cat  = next((int(c[0]) for c in gt_codes_list if c != "0" and c[0].isdigit()), 0)
+        gt_sub  = next((c[1:] for c in gt_codes_list if len(c) > 1 and c[0].isdigit() and c[1:].isalpha()), "")
+        ens_has = bool(row.get("ensemble_has", False))
+        ens_cat = int(row.get("ensemble_category", 0))
+        ens_sub = str(row.get("ensemble_subcategory", "") or "")
+        ps_rows.append({"model": "ensemble", "task": "binary",   "y_true": int(gt_has),  "y_pred": int(ens_has)})
+        ps_rows.append({"model": "ensemble", "task": "category", "y_true": gt_cat,        "y_pred": ens_cat})
+        if gt_cat != 0:
+            ps_rows.append({"model": "ensemble", "task": "subcategory", "y_true": gt_sub, "y_pred": ens_sub})
+    df_ps = pd.DataFrame(ps_rows)
+
     Path("results").mkdir(exist_ok=True)
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         df_summary.to_excel(writer, index=False, sheet_name="Metrics")
         df_detailed.to_excel(writer, index=False, sheet_name="PerSentence")
+        for task in ("binary", "category", "subcategory"):
+            subset = df_ps[df_ps["task"] == task].drop(columns="task").reset_index(drop=True)
+            if not subset.empty:
+                subset.to_excel(writer, index=False, sheet_name=task.capitalize())
     print(f"\nEnsemble results written to: {output_path}")
 
 

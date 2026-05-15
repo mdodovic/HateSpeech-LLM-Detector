@@ -16,6 +16,7 @@ import time
 import re
 from sklearn.metrics import accuracy_score
 import json
+import pandas as pd
 from pathlib import Path
 from typing import Optional, List, Dict
 
@@ -231,6 +232,14 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
             "llm_total_s": total_llm_s,
         },
         "multi_label_metrics": multi_label_metrics,
+        "per_sample": {
+            "y_true_binary":     [int(v) for v in y_true_bin],
+            "y_pred_binary":     [int(v) for v in y_pred_bin],
+            "y_true_category":   list(y_true_cat),
+            "y_pred_category":   list(y_pred_cat),
+            "y_true_subcategory": list(y_true_sub),
+            "y_pred_subcategory": list(y_pred_sub),
+        },
     }
 
 
@@ -375,7 +384,15 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
             "oneprompt_total_s": total_oneprompt_s,
             "oneprompt_calls": n_oneprompt_calls,
             "oneprompt_avg_ms": avg_oneprompt_ms,
-        }
+        },
+        "per_sample": {
+            "y_true_binary":     [int(v) for v in y_true_bin],
+            "y_pred_binary":     [int(v) for v in y_pred_bin],
+            "y_true_category":   list(y_true_cat),
+            "y_pred_category":   list(y_pred_cat),
+            "y_true_subcategory": list(y_true_sub),
+            "y_pred_subcategory": list(y_pred_sub),
+        },
     }
 
 
@@ -394,6 +411,7 @@ def run(excel_path: str, models: List[str] = [], debug: int = 0) -> None:
 
     one_prompt_evaluator = HateSpeechEvaluator()
     two_prompt_evaluator = HateSpeechEvaluator()
+    per_sample_rows: List[Dict] = []
 
     for model_name, tag in model_tags.items():
         print("\n" + "=" * 70)
@@ -403,6 +421,16 @@ def run(excel_path: str, models: List[str] = [], debug: int = 0) -> None:
         res_two = two_prompts_evaluation_model_on_records(tag, records)
         print("-- Jedan prompt (detekcija + kategorija) --")
         res_one = one_prompt_evaluation_model_on_records(tag, records)
+
+        # Collect per-sample data for bootstrap CI
+        for prompt_type, res in [("two_prompts", res_two), ("one_prompt", res_one)]:
+            ps = res.get("per_sample", {})
+            for yt, yp in zip(ps.get("y_true_binary", []), ps.get("y_pred_binary", [])):
+                per_sample_rows.append({"model": tag, "prompt_type": prompt_type, "task": "binary", "y_true": yt, "y_pred": yp})
+            for yt, yp in zip(ps.get("y_true_category", []), ps.get("y_pred_category", [])):
+                per_sample_rows.append({"model": tag, "prompt_type": prompt_type, "task": "category", "y_true": yt, "y_pred": yp})
+            for yt, yp in zip(ps.get("y_true_subcategory", []), ps.get("y_pred_subcategory", [])):
+                per_sample_rows.append({"model": tag, "prompt_type": prompt_type, "task": "subcategory", "y_true": yt, "y_pred": yp})
 
         # Štampa metrika za tekući model
         print("\n>> Rezime metrika (dva prompta)")
@@ -435,6 +463,18 @@ def run(excel_path: str, models: List[str] = [], debug: int = 0) -> None:
         two_prompt_evaluator.save_results_to_excel("results/single_sentence_comparison_multiple_cat.xlsx", sheet_name="Two Prompts")
     if one_prompt_evaluator.results:
         one_prompt_evaluator.save_results_to_excel("results/single_sentence_comparison_multiple_cat.xlsx", sheet_name="One Prompt")
+
+    # Save per-sample predictions for bootstrap CI
+    if per_sample_rows:
+        per_sample_path = Path("results/single_sentence_per_sample.xlsx")
+        per_sample_path.parent.mkdir(parents=True, exist_ok=True)
+        df_ps = pd.DataFrame(per_sample_rows)
+        with pd.ExcelWriter(str(per_sample_path), engine="openpyxl") as writer:
+            for task in ("binary", "category", "subcategory"):
+                subset = df_ps[df_ps["task"] == task].drop(columns="task").reset_index(drop=True)
+                if not subset.empty:
+                    subset.to_excel(writer, index=False, sheet_name=task.capitalize())
+        print(f"\nPer-sample data saved to: {per_sample_path}")
 
     # Uporedni pregled (tabela)
     print("\n" + "#" * 70)
