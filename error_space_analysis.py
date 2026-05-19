@@ -430,6 +430,121 @@ def main():
         ],
     })
 
+    # ── Sentence length analysis ──────────────────────────────────────────
+    binary_per_sample["word_count"] = binary_per_sample["sentence"].apply(
+        lambda x: len(str(x).split())
+    )
+    binary_per_sample["char_count"] = binary_per_sample["sentence"].apply(
+        lambda x: len(str(x))
+    )
+    t33, t67 = np.percentile(binary_per_sample["word_count"], [33, 67])
+    def _bucket(wc, t33=t33, t67=t67):
+        if wc <= t33:  return f"Short (1-{int(t33)} words)"
+        if wc <= t67:  return f"Medium ({int(t33)+1}-{int(t67)} words)"
+        return         f"Long (>{int(t67)} words)"
+    binary_per_sample["length_bucket"] = binary_per_sample["word_count"].apply(_bucket)
+
+    length_rows = []
+    for bucket_label in [f"Short (1-{int(t33)} words)",
+                         f"Medium ({int(t33)+1}-{int(t67)} words)",
+                         f"Long (>{int(t67)} words)"]:
+        mask    = binary_per_sample["length_bucket"] == bucket_label
+        sub_len = binary_per_sample[mask]
+        n       = len(sub_len)
+        n_hate_b    = int((sub_len["gt_binary"] == 1).sum())
+        n_nohate_b  = n - n_hate_b
+        for col, mname in [("llama_error_type", "LLaMA"), ("qwen_error_type", "Qwen")]:
+            vc = sub_len[col].value_counts()
+            tp = int(vc.get("TP", 0)); tn = int(vc.get("TN", 0))
+            fp = int(vc.get("FP", 0)); fn = int(vc.get("FN", 0))
+            length_rows.append({
+                "length_bucket":  bucket_label,
+                "word_count_range": f"{int(sub_len['word_count'].min())}-{int(sub_len['word_count'].max())}",
+                "n_samples":      n,
+                "n_hate":         n_hate_b,
+                "n_no_hate":      n_nohate_b,
+                "model":          mname,
+                "TP": tp, "TN": tn, "FP": fp, "FN": fn,
+                "accuracy_pct":   round((tp + tn) / n * 100, 1) if n > 0 else None,
+                "FPR_pct":        round(fp / n_nohate_b * 100, 1) if n_nohate_b > 0 else None,
+                "FNR_pct":        round(fn / n_hate_b  * 100, 1) if n_hate_b   > 0 else None,
+            })
+    length_df = pd.DataFrame(length_rows)
+
+    # ── Concrete FP / FN examples ─────────────────────────────────────────
+    _ex_cols = ["agreement", "paragraph_id", "sentence", "gt_category_str",
+                "gt_category", "word_count"]
+
+    def _error_examples(err_type: str) -> pd.DataFrame:
+        both = binary_per_sample[
+            (binary_per_sample["llama_error_type"] == err_type) &
+            (binary_per_sample["qwen_error_type"]  == err_type)
+        ].assign(agreement="Both models")
+        llama_only = binary_per_sample[
+            (binary_per_sample["llama_error_type"] == err_type) &
+            (binary_per_sample["qwen_error_type"]  != err_type)
+        ].assign(agreement="LLaMA only")
+        qwen_only = binary_per_sample[
+            (binary_per_sample["qwen_error_type"]  == err_type) &
+            (binary_per_sample["llama_error_type"] != err_type)
+        ].assign(agreement="Qwen only")
+        return (
+            pd.concat([both, llama_only, qwen_only], ignore_index=True)
+            [_ex_cols]
+            .sort_values(["agreement", "word_count"])
+            .reset_index(drop=True)
+        )
+
+    fp_examples_df = _error_examples("FP")
+    fn_examples_df = _error_examples("FN")
+
+    # ── Top confused category pairs ───────────────────────────────────────
+    from collections import Counter as _Counter
+
+    def _top_conf_pairs(y_true_arr, y_pred_arr, cat_names, model_name):
+        rows = []
+        yt = [int(t) for t in y_true_arr]
+        yp = [int(p) if p != -1 else -1 for p in y_pred_arr]
+        for gt_cat in sorted(set(yt)):
+            indices  = [i for i, t in enumerate(yt) if t == gt_cat]
+            n_gt     = len(indices)
+            wrong    = [yp[i] for i in indices if yp[i] != gt_cat]
+            n_wrong  = len(wrong)
+            if n_wrong == 0:
+                continue
+            for pred_cat, cnt in _Counter(wrong).most_common():
+                rows.append({
+                    "model":                model_name,
+                    "gt_category":          cat_names.get(gt_cat,   str(gt_cat)),
+                    "predicted_as":         "Missed" if pred_cat == -1
+                                            else cat_names.get(pred_cat, str(pred_cat)),
+                    "count":                cnt,
+                    "pct_of_misclassified": round(cnt / n_wrong * 100, 1),
+                    "pct_of_gt_total":      round(cnt / n_gt    * 100, 1),
+                    "n_misclassified":      n_wrong,
+                    "n_gt":                 n_gt,
+                })
+        return rows
+
+    cat_conf_rows = (
+        _top_conf_pairs(llama_cat_yt, llama_cat_yp, CATEGORY_NAMES, "LLaMA") +
+        _top_conf_pairs(qwen_cat_yt,  qwen_cat_yp,  CATEGORY_NAMES, "Qwen")
+    )
+    cat_confusions_df = pd.DataFrame(cat_conf_rows)
+
+    # ── Enrich errors_by_cat with rates ───────────────────────────────────
+    errors_by_cat["accuracy_pct"] = (
+        (errors_by_cat["TP"] + errors_by_cat["TN"]) / errors_by_cat["n_samples"] * 100
+    ).round(1)
+    errors_by_cat["FPR_pct"] = (
+        errors_by_cat["FP"] /
+        (errors_by_cat["FP"] + errors_by_cat["TN"]).clip(lower=1) * 100
+    ).round(1)
+    errors_by_cat["FNR_pct"] = (
+        errors_by_cat["FN"] /
+        (errors_by_cat["FN"] + errors_by_cat["TP"]).clip(lower=1) * 100
+    ).round(1)
+
     # ── Print summary to console ──────────────────────────────────────────
     print(f"\n{'='*70}")
     print(f"  Error Space Analysis — Zero-shot LLaMA vs Zero-shot Qwen")
@@ -473,6 +588,72 @@ def main():
     print(f"  LLaMA Only    : {sub_b10:4d}  ({sub_b10/n_hate:.1%})")
     print(f"  Qwen Only     : {sub_b01:4d}  ({sub_b01/n_hate:.1%})")
     print(f"  Both Wrong    : {sub_bw:4d}  ({sub_bw/n_hate:.1%})")
+
+    # ── Paper narrative ───────────────────────────────────────────────────
+    n_nohate_total = int((gt_binary == 0).sum())
+    llama_fp_n = int(np.sum((llama_bin == 1) & (gt_binary == 0)))
+    llama_fn_n = int(np.sum((llama_bin == 0) & (gt_binary == 1)))
+    qwen_fp_n  = int(np.sum((qwen_bin  == 1) & (gt_binary == 0)))
+    qwen_fn_n  = int(np.sum((qwen_bin  == 0) & (gt_binary == 1)))
+    agreed_fp_n = int(np.sum((llama_bin == 1) & (qwen_bin == 1) & (gt_binary == 0)))
+    agreed_fn_n = int(np.sum((llama_bin == 0) & (qwen_bin == 0) & (gt_binary == 1)))
+
+    print(f"\n{'='*70}")
+    print(f"  PAPER NARRATIVE — Error Space Analysis")
+    print(f"{'='*70}")
+
+    print(f"\n─ Binary Detection (n=548: {n_hate} hate, {n_nohate_total} non-hate) ──────────────")
+    print(f"  False Positives (non-hate classified as hate):")
+    print(f"    LLaMA : {llama_fp_n}/{n_nohate_total} = {llama_fp_n/n_nohate_total:.1%} of non-hate sentences")
+    print(f"    Qwen  : {qwen_fp_n}/{n_nohate_total} = {qwen_fp_n/n_nohate_total:.1%} of non-hate sentences")
+    if llama_fp_n > 0:
+        print(f"    Agreed: {agreed_fp_n} sentences falsely flagged by BOTH  "
+              f"({agreed_fp_n/llama_fp_n:.1%} of LLaMA FP, {agreed_fp_n/qwen_fp_n:.1%} of Qwen FP)")
+    print(f"  False Negatives (hate missed):")
+    print(f"    LLaMA : {llama_fn_n}/{n_hate} = {llama_fn_n/n_hate:.1%} of hate sentences")
+    print(f"    Qwen  : {qwen_fn_n}/{n_hate} = {qwen_fn_n/n_hate:.1%} of hate sentences")
+    print(f"    Agreed: {agreed_fn_n} hate sentences missed by BOTH  ({agreed_fn_n/n_hate:.1%} of all hate)")
+
+    print(f"\n─ FN rate by hate category ──────────────────────────────────────────")
+    hate_rows = errors_by_cat[
+        (errors_by_cat["gt_category"] != CATEGORY_NAMES[0]) &
+        (errors_by_cat["model"] == "LLaMA")
+    ].sort_values("FNR_pct", ascending=False)
+    for _, row in hate_rows.iterrows():
+        qrow = errors_by_cat[
+            (errors_by_cat["gt_category"] == row["gt_category"]) &
+            (errors_by_cat["model"] == "Qwen")
+        ]
+        q_fnr = qrow["FNR_pct"].values[0] if len(qrow) else float("nan")
+        print(f"  {row['gt_category']:35s} n={row['n_samples']:3d}  "
+              f"LLaMA FNR={row['FNR_pct']:5.1f}%   Qwen FNR={q_fnr:5.1f}%")
+
+    print(f"\n─ Sentence Length Effect ────────────────────────────────────────────")
+    for _, row in length_df.sort_values(["length_bucket", "model"]).iterrows():
+        print(f"  {row['length_bucket']:28s}  {row['model']:6s}  "
+              f"acc={row['accuracy_pct']:5.1f}%  "
+              f"FPR={row['FPR_pct']:5.1f}%  FNR={row['FNR_pct']:5.1f}%  "
+              f"(n={row['n_samples']}, hate={row['n_hate']})")
+
+    print(f"\n─ Top Category Confusions ───────────────────────────────────────────")
+    for model_name in ["LLaMA", "Qwen"]:
+        print(f"\n  {model_name}:")
+        sub_conf = cat_confusions_df[
+            cat_confusions_df["model"] == model_name
+        ].sort_values("count", ascending=False).head(10)
+        for _, row in sub_conf.iterrows():
+            print(f"    True: {row['gt_category']:30s} -> Pred: {row['predicted_as']:30s}  "
+                  f"n={row['count']:3d}  "
+                  f"{row['pct_of_misclassified']:5.1f}% of misclassified  "
+                  f"{row['pct_of_gt_total']:5.1f}% of all GT")
+
+    print(f"\n─ False Positive Examples — both models agreed (n={len(fp_examples_df[fp_examples_df['agreement']=='Both models'])}) ──")
+    for _, row in fp_examples_df[fp_examples_df["agreement"] == "Both models"].head(6).iterrows():
+        print(f"  [{row['word_count']:2d} words]  {row['sentence'][:110]}")
+
+    print(f"\n─ False Negative Examples — both models agreed (n={len(fn_examples_df[fn_examples_df['agreement']=='Both models'])}) ──")
+    for _, row in fn_examples_df[fn_examples_df["agreement"] == "Both models"].head(6).iterrows():
+        print(f"  [{row['word_count']:2d} words | {row['gt_category']}]  {row['sentence'][:100]}")
 
     # ── Save to Excel ─────────────────────────────────────────────────────
     bin_quad   = quadrant_matrix(llama_correct_bin, qwen_correct_bin)
@@ -564,8 +745,12 @@ def main():
         conf_cat_qwen.to_excel(writer,     sheet_name="Conf_Category_Qwen")
         sub_per_sample.to_excel(writer,    sheet_name="Subcategory_PerSample",      index=False)
         sub_quad.to_excel(writer,          sheet_name="Subcategory_Quadrant",       index=False)
-        conf_sub_llama.to_excel(writer,    sheet_name="Conf_Subcategory_LLaMA")
-        conf_sub_qwen.to_excel(writer,     sheet_name="Conf_Subcategory_Qwen")
+        conf_sub_llama.to_excel(writer,      sheet_name="Conf_Subcategory_LLaMA")
+        conf_sub_qwen.to_excel(writer,       sheet_name="Conf_Subcategory_Qwen")
+        length_df.to_excel(writer,           sheet_name="Length_Analysis",         index=False)
+        cat_confusions_df.to_excel(writer,   sheet_name="Category_TopConfusions",  index=False)
+        fp_examples_df.to_excel(writer,      sheet_name="Examples_FalsePositives", index=False)
+        fn_examples_df.to_excel(writer,      sheet_name="Examples_FalseNegatives", index=False)
 
     print(f"\nSaved to: {output_path}")
 
