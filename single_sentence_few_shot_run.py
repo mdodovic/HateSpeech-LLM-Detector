@@ -321,11 +321,9 @@ def run(excel_path: str, models: List[str] = [], debug: int = 0) -> None:
 
 if __name__ == "__main__":
     # Jednostavan podrazumevani poziv: koristi modele iz models/models.json ili data/models.json
-    d = [15, ]
-    for d in range(7,44,2):
-        run(
-            excel_path="data/single_sentence_hate_speech_no_offenses.xlsx",
-            # models=["llama", "qwen3"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
-            models=["llama"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
-            debug=d
-        )
+    run(
+        excel_path="data/single_sentence_hate_speech_no_offenses.xlsx",
+        models=["llama", "qwen3"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
+        # models=["llama"],  # ako je prazno, biće učitano iz models/models.json ili data/models.json
+        debug=548
+    )
