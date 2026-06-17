@@ -1,191 +1,387 @@
 # HateSpeech-LLM-Detector
 
-Results for: microsoft/phi-2
+Research code for Serbian hate-speech detection and fine-grained categorization. The project compares local LLM prompting through Ollama, evaluates external LLM predictions, analyzes annotated Excel datasets, and fine-tunes BERTic classifiers for sentence-level hate-speech tasks.
 
---- Task 1: Binary Hate Speech Detection ---
-Accuracy       : 0.9500
-Precision      : 0.9200
-Recall         : 0.9000
-F1             : 0.9100
+The code is organized around annotated paragraph and single-sentence datasets where labels use compact category codes such as `0`, `1a`, `3b`, or `6c`.
 
---- Task 3: Hate Speech Categorization ---
-Accuracy                 : 0.8800
-Precision macro          : 0.8500
-Recall macro             : 0.8300
-F1 macro                 : 0.8400
+## Main Capabilities
 
---- Task 2: Token Coverage Statistics ---
-Total tokens analyzed            : 1250
-Total tokens covered             : 385
-Mean coverage ratio              : 0.3080
+- Binary hate-speech detection: hate speech vs. no hate speech.
+- Ternary classification for datasets with offenses: no offense, offense `U`, hate speech.
+- Top-level category classification: classes `0` through `7`.
+- Subcategory classification: `0`, `1a`, `1b`, `1c`, `2`, `3a`, `3b`, `4a`, `4b`, `5`, `6a`, `6b`, `6c`, `7`.
+- Single-sentence LLM evaluation with one-prompt, two-prompt, few-shot, and ensemble variants.
+- Full-text paragraph evaluation by splitting paragraphs into sentences.
+- BERTic fine-tuning for binary, ternary, category, and subcategory classifiers.
+- Dataset analysis, plotting, annotator agreement, and dataset conversion utilities.
+
+## Repository Layout
+
+```text
+.
+|-- data/                         # Excel datasets and dataset utilities
+|-- models/                       # Ollama model configuration
+|-- results/                      # Generated Excel reports, plots, and old results
+|-- src/
+|   |-- categories.py             # Hate-speech category and subcategory definitions
+|   |-- evaluation.py             # Shared metric helpers
+|   |-- llm_detector.py           # Ollama-backed detector
+|   |-- prompts/                  # Prompt templates
+|   `-- utils.py                  # Dataset/model parsing helpers
+|-- finetune_bertic_*.py          # BERTic fine-tuning scripts
+|-- *_run.py                      # LLM evaluation scripts
+|-- dataset_analysis.py           # Dataset statistics and plots
+|-- gemini_results.py             # Evaluation of saved Gemini predictions
+`-- requirements.txt
 ```
 
-## Requirements
+## Setup
 
-- Python 3.8+
-- PyTorch 2.0+
-- Transformers 4.30+
-- CUDA-capable GPU (recommended for larger models)
+Create a virtual environment and install dependencies:
 
-## Research Applications
+```bash
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-This framework is designed for research purposes including:
+On Linux/macOS, activate with:
 
-- Comparing different LLMs for hate speech detection
-- Analyzing token-level hate speech coverage
-- Fine-grained categorization of hate speech types
-- Developing and evaluating hate speech detection systems
+```bash
+source venv/bin/activate
+```
 
-## License
+The fine-tuning scripts use PyTorch and Hugging Face Transformers. The pinned `requirements.txt` includes a CUDA build of PyTorch; adjust the PyTorch packages if your machine needs a CPU-only or different CUDA build.
 
-This project is licensed under the GNU General Public License v3.0 - see the LICENSE file for details.
+## Ollama Setup
 
-## Citation
+The LLM evaluation scripts use a local Ollama server at `http://localhost:11434`.
 
-If you use this framework in your research, please cite:
+Install Ollama, then pull the models listed in `models/models.json`:
 
-```bibtex
-@software{hatespeech_llm_detector,
-  title = {HateSpeech-LLM-Detector: A Framework for Hate Speech Detection using LLMs},
-  author = {Your Name},
-  year = {2025},
-  url = {https://github.com/mdodovic/HateSpeech-LLM-Detector}
+```bash
+ollama pull llama3
+ollama pull mistral
+ollama pull deepseek-r1
+ollama pull phi3
+ollama pull qwen3
+ollama pull phi4
+```
+
+Start the server:
+
+```bash
+ollama serve
+```
+
+Model display names and Ollama tags are configured in [models/models.json](models/models.json):
+
+```json
+{
+  "llama": "llama3",
+  "mistral": "mistral",
+  "deepseek": "deepseek-r1",
+  "phi3": "phi3",
+  "qwen3": "qwen3",
+  "phi4": "phi4"
 }
 ```
 
-## Contributing
+## Label Schema
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Category definitions live in [src/categories.py](src/categories.py).
 
-## Disclaimer
+| Code | Meaning |
+| --- | --- |
+| `0` | No hate speech |
+| `1` | Racial and ethnic/national hate |
+| `1a` | Race / skin color |
+| `1b` | Ethnic affiliation |
+| `1c` | Nationality / origin |
+| `2` | Religious hate |
+| `3` | Sex- and gender-based hate |
+| `3a` | Sex / sexism |
+| `3b` | LGBTQ+ identities |
+| `4` | Physical traits and health-based hate |
+| `4a` | Physical appearance |
+| `4b` | Illness / disability |
+| `5` | Age- and generation-based hate |
+| `6` | Socioeconomic hate |
+| `6a` | Socioeconomic status / class |
+| `6b` | Occupation / profession |
+| `6c` | Political intolerance |
+| `7` | Sports and fan-based hate |
+| `U` | Offense, used by the offense-aware datasets/scripts |
 
-This tool is designed for research and educational purposes. Hate speech detection is a sensitive topic and results should be carefully validated. The tool's predictions may not always be accurate and should not be used as the sole basis for content moderation decisions.
-A hate speech detection system using Large Language Models (LLMs) with support for multiple languages, with primary focus on Serbian language.
+Several scripts support multi-label annotations in cells, for example `4a,6a` or parenthesized sentence-level groups such as `(6c;0), 0, 1a`.
 
-## Features
+## Data Files
 
-- 🌐 Multi-language support (Serbian, English)
-- 📝 Organized prompt templates for hate speech detection
-- 🔍 Multiple detection modes: classification and detailed analysis
-- 🎯 Easy-to-use prompt loader utility
-- 📊 Structured JSON responses for easy integration
+Current tracked datasets include:
 
-## Project Structure
+- `data/access_paragraph_hate_speech_with_offenses.xlsx` - source paragraph annotations with offense labels.
+- `data/paragraph_hate_speech_offenses.xlsx` - paragraph dataset preserving offense labels.
+- `data/paragraph_hate_speech_no_offenses.xlsx` - paragraph dataset where offenses are treated as no hate.
+- `data/single_sentence_hate_speech_offenses.xlsx` - sentence dataset preserving offense labels.
+- `data/single_sentence_hate_speech_no_offenses.xlsx` - sentence dataset where offenses are treated as no hate.
+- `data/single_sentence_llm_predictions.xlsx` - saved external LLM predictions for single-sentence evaluation.
+- `data/paragraph_llm_predictions.xlsx` - saved external LLM predictions for paragraph evaluation.
 
-```
-HateSpeech-LLM-Detector/
-├── prompts/              # Prompt templates organized by language
-│   ├── serbian/         # Serbian language prompts (Primary)
-│   │   ├── system_prompt.txt
-│   │   ├── classification_prompt.txt
-│   │   └── analysis_prompt.txt
-│   ├── english/         # English language prompts
-│   │   ├── system_prompt.txt
-│   │   ├── classification_prompt.txt
-│   │   └── analysis_prompt.txt
-│   └── README.md        # Detailed prompts documentation
-├── prompt_loader.py     # Utility for loading and managing prompts
-├── example_usage.py     # Example usage demonstrations
-└── README.md           # This file
-```
+The legacy LLM scripts default to `data/single_sentence_hate_speech.xlsx` and `data/paragraph_hate_speech.xlsx`. If those files are not present, either generate them with the dataset utility below or edit the script call at the bottom of the file to use one of the existing `*_offenses.xlsx` or `*_no_offenses.xlsx` files.
 
-## Quick Start
+Expected dataset columns are usually:
 
-### Loading Prompts
+- `ID`
+- `Text`
+- `Category`
 
-```python
-from prompt_loader import PromptLoader
+The generic loader also accepts lowercase variants like `text` and `category`.
 
-# Initialize the loader
-loader = PromptLoader()
+## Prompt-Based LLM Evaluation
 
-# Load Serbian classification prompt
-serbian_prompt = loader.get_classification_prompt('serbian')
-formatted = serbian_prompt.format(text="Tekst za analizu")
+### Single-Sentence Evaluation
 
-# Load English system prompt
-english_system = loader.get_system_prompt('english')
-```
-
-### Running Examples
+Runs all models from `models/models.json` and compares the two-prompt flow against the one-prompt flow:
 
 ```bash
-# See available prompts and usage examples
-python example_usage.py
-
-# Test the prompt loader directly
-python prompt_loader.py
+python single_sentence_run.py
 ```
 
-## Prompt Types
+Default output:
 
-### System Prompt
-Defines the role and expertise of the LLM for hate speech detection.
+```text
+results/single_sentence_comparison_multiple_cat.xlsx
+```
 
-### Classification Prompt
-Binary classification with structured JSON output:
-- `is_hate_speech`: Boolean indicator
-- `confidence`: Confidence score (0-1)
-- `categories`: Detected hate speech categories
-- `explanation`: Brief explanation
+If `data/single_sentence_hate_speech.xlsx` is missing, edit the `run(...)` call at the bottom of [single_sentence_run.py](single_sentence_run.py), for example:
 
-### Analysis Prompt
-Detailed analysis providing:
-- Hate speech determination
-- Specific problematic elements
-- Target groups identification
-- Severity assessment
-- Moderation recommendations
+```python
+run(excel_path="data/single_sentence_hate_speech_no_offenses.xlsx")
+```
 
-## Supported Languages
+### Few-Shot Single-Sentence Evaluation
 
-- **Serbian (Srpski)** - Primary language with full support
-- **English** - Full support for comparison and broader usage
+Uses `src/prompts/classify_few_shot.txt` for category classification:
 
-## Adding New Languages
+```bash
+python single_sentence_few_shot_run.py
+```
 
-See [prompts/README.md](prompts/README.md) for instructions on adding support for additional languages.
+Default output:
+
+```text
+results/single_sentence_few_shot.xlsx
+```
+
+The current script loops over debug sizes and uses only `llama` by default; edit the `__main__` block to change the dataset, models, or debug range.
+
+### Single-Sentence Ensemble
+
+Runs majority voting across the configured model subset:
+
+```bash
+python single_sentence_run_ensemble.py
+```
+
+Default output:
+
+```text
+results/single_sentence_ensemble.xlsx
+```
+
+Configuration constants are at the top of [single_sentence_run_ensemble.py](single_sentence_run_ensemble.py):
+
+- `DATASET_PATH`
+- `RESULTS_XLSX`
+- `USE_ONE_PROMPT`
+- `MODEL_SUBSET`
+
+### Full-Text Evaluation
+
+Classifies every sentence in each paragraph using `src/prompts/classify_full_all.txt`:
+
+```bash
+python full_text_run.py
+```
+
+Default output:
+
+```text
+results/full_text_comparison.xlsx
+```
+
+As with the single-sentence script, update the `run(...)` call if `data/paragraph_hate_speech.xlsx` is not present.
+
+### Full-Text Ensemble
+
+Runs majority voting per sentence:
+
+```bash
+python full_text_run_ensemble.py
+```
+
+Default output:
+
+```text
+results/full_text_ensemble.xlsx
+```
+
+Configuration constants are at the top of [full_text_run_ensemble.py](full_text_run_ensemble.py).
+
+## Evaluating Saved Gemini Predictions
+
+Compare saved Gemini-style predictions against ground truth:
+
+```bash
+python gemini_results.py \
+  --gt data/single_sentence_hate_speech_no_offenses.xlsx \
+  --llm data/single_sentence_llm_predictions.xlsx \
+  --output results/gemini_results.xlsx
+```
+
+The script reports binary accuracy/F1, category accuracy/F1, subcategory accuracy/F1, and a category classification report.
+
+## BERTic Fine-Tuning
+
+The fine-tuning scripts train `classla/bcms-bertic` sequence classifiers using paragraph context plus the target sentence:
+
+```text
+[CLS] full_paragraph [SEP] target_sentence [SEP]
+```
+
+Binary hate speech:
+
+```bash
+python finetune_bertic_binary.py
+```
+
+Ternary no-offense/offense/hate:
+
+```bash
+python finetune_bertic_ternary.py
+```
+
+Eight-way top-level category classification:
+
+```bash
+python finetune_bertic_categories.py
+```
+
+Fourteen-way subcategory classification:
+
+```bash
+python finetune_bertic_subcategories.py
+```
+
+Common options:
+
+```bash
+python finetune_bertic_categories.py \
+  --epochs 10 \
+  --batch_size 8 \
+  --lr 5e-5 \
+  --sentence_path data/single_sentence_hate_speech_no_offenses.xlsx \
+  --paragraph_path data/paragraph_hate_speech_no_offenses.xlsx \
+  --output_dir bertic_finetuned_categories \
+  --output results/bertic/bertic_categories_results.xlsx
+```
+
+Additional options include `--freeze`, `--dropout`, `--weight_decay`, `--label_smoothing`, `--gradient_accumulation_steps`, `--max_length`, `--val_split`, and `--seed` depending on the script.
+
+Hyperparameter search helpers are available as PowerShell scripts:
+
+- `hp_search_binary.ps1`
+- `hp_freeze_search_binary.ps1`
+- `hp_search_freeze.ps1`
+
+## Dataset Utilities
+
+Build paragraph-level and sentence-level datasets from the annotator spreadsheet:
+
+```bash
+python data/paragraph_dataset_single_sentence_creator.py \
+  --file data/access_paragraph_hate_speech_with_offenses.xlsx \
+  --output data/single_sentence_hate_speech.xlsx \
+  --paragraph_output data/paragraph_hate_speech.xlsx
+```
+
+To replace offense label `U` with `0`:
+
+```bash
+python data/paragraph_dataset_single_sentence_creator.py \
+  --remove_offense \
+  --output data/single_sentence_hate_speech_no_offenses.xlsx \
+  --paragraph_output data/paragraph_hate_speech_no_offenses.xlsx
+```
+
+Check whether a supposed single-sentence file contains multi-sentence rows:
+
+```bash
+python data/single_sentence_checker.py --file data/single_sentence_hate_speech_no_offenses.xlsx --not_ok
+```
+
+Other helper scripts in `data/` support paragraph checks and LLM prediction dataset creation.
+
+## Dataset Analysis
+
+Run the full dataset analysis:
+
+```bash
+python dataset_analysis.py
+```
+
+Defaults:
+
+- Full-text dataset: `data/paragraph_hate_speech_offenses.xlsx`
+- Single-sentence dataset: `data/single_sentence_hate_speech_offenses.xlsx`
+- Annotator dataset: `data/access_paragraph_hate_speech_with_offenses.xlsx`
+- Output workbook: `results/complete_dataset_analysis.xlsx`
+- Plots: `results/plots/`
+
+## Prompt Templates
+
+Prompt files are in [src/prompts](src/prompts):
+
+- `system_prompt.txt` - shared system prompt.
+- `detect.txt` - binary detection.
+- `classify.txt` - category/subcategory classification.
+- `classify_few_shot.txt` - few-shot category/subcategory classification.
+- `detect_and_classify.txt` - one-call binary and category classification.
+- `classify_full_all.txt` - sentence-by-sentence paragraph classification.
+
+## Outputs
+
+Most scripts write Excel reports under `results/`. Existing result groups include:
+
+- `results/single_sentence_comparison_multiple_cat.xlsx`
+- `results/single_sentence_ensemble.xlsx`
+- `results/single_sentence_few_shot.xlsx`
+- `results/full_text_comparison.xlsx`
+- `results/full_text_ensemble.xlsx`
+- `results/gemini_results.xlsx`
+- `results/bertic/`
+- `results/plots/`
+
+Fine-tuned model checkpoints are written to directories such as:
+
+- `bertic_finetuned_binary/`
+- `bertic_finetuned_categories/`
+- `bertic_finetuned_subcategories/`
+- `bertic_finetuned_ternary/`
+
+## Troubleshooting
+
+- `Connection refused`: make sure `ollama serve` is running.
+- `model not found`: run `ollama pull <model-tag>` for each tag in `models/models.json`.
+- Missing `data/single_sentence_hate_speech.xlsx` or `data/paragraph_hate_speech.xlsx`: generate them with `paragraph_dataset_single_sentence_creator.py`, or change the script default to an existing dataset.
+- Sentence count mismatch in full-text evaluation: the code compares ground-truth labels to its regex sentence splitter and warns when counts differ.
+- Slow LLM evaluation: reduce `MODEL_SUBSET`, use a smaller `debug` value, or test with one model first.
+- CUDA/PyTorch install issues: install the PyTorch build matching your hardware from the official PyTorch instructions, then reinstall the remaining requirements.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).
 
-## Contributing
+## Disclaimer
 
-Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
-
-## Ensemble Majority Voting (Ansambl)
-
-The script `single_sentence_run_ansamble.py` now supports an ensemble mode that queries all models defined in `models/models.json` and produces a majority-vote prediction.
-
-Voting rules:
-- `has_hate_speech`: majority True/False across models.
-- `category`: majority among non-zero categories from models that predicted hate; ties → lowest category id.
-- `subcategory`: majority letter among models that predicted the chosen category; ignores empty; ties → alphabetical.
-- If majority is no hate → category=0, subcategory="".
-
-### Run Only Ensemble
-```bash
-python single_sentence_run_ansamble.py --skip-individual --ensemble \
-  --excel data/single_sentence_hate_speech_labeled_samples_small.xlsx
-```
-
-### Run Individual Evaluations + Ensemble
-```bash
-python single_sentence_run_ansamble.py --ensemble \
-  --excel data/single_sentence_hate_speech_labeled_samples_small.xlsx
-```
-
-### Restrict to a Subset of Models
-```bash
-python single_sentence_run_ansamble.py --ensemble --models llama,qwen3
-```
-
-### Use Two-Prompt Mode Inside Ensemble (slower)
-```bash
-python single_sentence_run_ansamble.py --ensemble --ensemble-one-prompt=false
-```
-(`--ensemble-one-prompt` omitted means one-prompt mode is used.)
-
-Results are appended to `results/single_sentence_comparison.xlsx` under sheet name `Ensemble`.
-
+This repository is for research and educational use. Hate-speech detection is sensitive and model outputs can be wrong, especially on ambiguous or context-dependent language. Do not use these predictions as the sole basis for moderation or enforcement decisions.
