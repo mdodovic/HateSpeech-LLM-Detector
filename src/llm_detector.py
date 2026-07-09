@@ -6,14 +6,14 @@ import re
 import os
 from pathlib import Path
 import requests
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from src.utils import parse_category_and_subcategory
 
 
 class LLMDetector:
     """Base class for hate speech detection using local Ollama service"""
 
-    def __init__(self, model_name: str, base_url: str = "http://localhost:11434", default_temperature: float = 0.1, default_max_tokens: int = 1024, prompts_dir: Path = Path(__file__).parent / "prompts"):
+    def __init__(self, model_name: str, base_url: str = "http://localhost:11434", default_temperature: float = 0.1, default_max_tokens: int = 1024, default_seed: Optional[int] = 42, prompts_dir: Path = Path(__file__).parent / "prompts"):
         """
         Initialize the LLM detector (Ollama)
 
@@ -21,10 +21,12 @@ class LLMDetector:
             model_name: Ollama model tag (e.g., "llama3.2:3b", "phi3:mini", "mistral:7b")
             base_url: Base URL of the local Ollama server
             default_temperature: Default sampling temperature
+            default_seed: Default Ollama generation seed; set to None to omit it
         """
         self.model_name = model_name
         self.base_url = base_url.rstrip("/")
         self.default_temperature = default_temperature
+        self.default_seed = default_seed
         self.max_tokens = default_max_tokens
         self._session = requests.Session()
 
@@ -84,13 +86,20 @@ class LLMDetector:
             return "\n".join(lines[-2:]) if len(lines) > 1 else lines[-1]
         return cleaned.strip()
 
-    def _chat(self, messages: List[Dict[str, str]], num_predict: int, temperature: float) -> str:
+    def _build_options(self, temperature: float, num_predict: int, seed: Optional[int]) -> Dict:
+        options = {"temperature": temperature, "num_predict": num_predict}
+        if seed is not None:
+            options["seed"] = int(seed)
+        return options
+
+    def _chat(self, messages: List[Dict[str, str]], num_predict: int, temperature: float, seed: Optional[int]) -> str:
+        options = self._build_options(temperature, num_predict, seed)
         # Try /api/chat first
         chat_payload = {
             "model": self.model_name,
             "messages": messages,
             "stream": False,
-            "options": {"temperature": temperature, "num_predict": num_predict},
+            "options": options,
         }
         chat_url = f"{self.base_url}/api/chat"
         resp = self._post(chat_url, chat_payload)
@@ -101,7 +110,7 @@ class LLMDetector:
                 "model": self.model_name,
                 "prompt": prompt,
                 "stream": False,
-                "options": {"temperature": temperature, "num_predict": num_predict},
+                "options": options,
             }
             gen_url = f"{self.base_url}/api/generate"
             gen_resp = self._post(gen_url, gen_payload)
@@ -134,7 +143,7 @@ class LLMDetector:
         return self._clean_content(content)
 
     # --- Public API (compatible with previous HF-based version) ---
-    def generate_response(self, prompt: str, max_new_tokens: int = 256, temperature: float = 0.1) -> str:
+    def generate_response(self, prompt: str, max_new_tokens: int = 256, temperature: float = 0.1, seed: Optional[int] = None) -> str:
         messages = [
             {
                 "role": "system",
@@ -143,7 +152,8 @@ class LLMDetector:
             {"role": "user", "content": prompt},
         ]
         temp = temperature if temperature is not None else self.default_temperature
-        return self._chat(messages, num_predict=max_new_tokens, temperature=temp)
+        generation_seed = self.default_seed if seed is None else seed
+        return self._chat(messages, num_predict=max_new_tokens, temperature=temp, seed=generation_seed)
 
     def detect_hate_speech_binary(self, text: str) -> bool:
         """

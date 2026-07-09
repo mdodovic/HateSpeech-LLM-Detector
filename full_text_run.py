@@ -14,18 +14,18 @@ import time
 import pandas as pd
 from sklearn.metrics import accuracy_score
 from pathlib import Path
-from typing import  List, Dict
+from typing import List, Dict, Optional
 
 from src.llm_detector import LLMDetector
 from src.categories import get_category_prompt, HATE_SPEECH_CATEGORIES
 from src.utils import load_excel_dataset, build_model_tags, parse_category_and_subcategory, load_excel_full_text_dataset
 from src.evaluation import HateSpeechEvaluator
 
-def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) -> Dict:
+def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict], seed: Optional[int] = 42) -> Dict:
     """Evaluacija koristeći JEDAN prompt (classify_full_all) i merenje po rečenici."""
     print(f"Uzoraka za obradu: {len(records)}")
     print("Inicijalizujem LLM detektor…")
-    detector = LLMDetector(model_tag)
+    detector = LLMDetector(model_tag, default_seed=seed)
     categories_prompt = get_category_prompt()
 
     # Metričke liste po rečenici
@@ -202,7 +202,7 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
     }
 
 
-def run(excel_path: str, models: List[str] = [], debug: int = -1, output_path: str = "results/full_text_comparison.xlsx", output_sheet_name: str = "Full") -> None:
+def run(excel_path: str, models: List[str] = [], debug: int = -1, output_path: str = "results/full_text_comparison.xlsx", output_sheet_name: str = "Full", seed: Optional[int] = 42) -> None:
     """Pokreni evaluaciju za više LLM-ova i prikaži metrike."""
     print("Učitavam dataset iz Excel fajla…")
     # For full-text spreadsheets where 'Category' contains comma-separated codes,
@@ -225,7 +225,7 @@ def run(excel_path: str, models: List[str] = [], debug: int = -1, output_path: s
         print(f"Evaluacija za model: {model_name} (tag: {tag})")
         print("=" * 70)
         print("-- Jedan prompt (classify_full_all; po rečenici) --")
-        res_one = one_prompt_evaluation_model_on_records(tag, records)
+        res_one = one_prompt_evaluation_model_on_records(tag, records, seed=seed)
 
         # Collect per-sample data for bootstrap CI
         ps = res_one.get("per_sample", {})

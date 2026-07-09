@@ -16,7 +16,7 @@ Ensemble majority voting for full-text inputs, evaluated per sentence.
 No command-line interface; adjust constants below if needed.
 """
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 import time
 import re
 from pathlib import Path
@@ -32,6 +32,7 @@ from src.evaluation import HateSpeechEvaluator
 DATASET_PATH = "data/paragraph_hate_speech.xlsx"
 RESULTS_XLSX = "results/full_text_ensemble.xlsx"
 MODEL_SUBSET: List[str] = []  # Empty -> use all from JSON
+SEED = 42
 
 
 def _normalize_subcat(raw_sub: str) -> str:
@@ -137,7 +138,7 @@ def _split_sentences_fallback(text: str) -> List[str]:
     return [p.strip() for p in parts if p and p.strip()]
 
 
-def perform_ensemble(excel_path: str = DATASET_PATH, models: List[str] = MODEL_SUBSET, debug: int = -1, output_path: str = RESULTS_XLSX):
+def perform_ensemble(excel_path: str = DATASET_PATH, models: List[str] = MODEL_SUBSET, debug: int = -1, output_path: Optional[str] = RESULTS_XLSX, seed: int = SEED):
     print("=" * 70)
     print("Full-text Ensemble Run (per sentence)")
     print("=" * 70)
@@ -150,7 +151,7 @@ def perform_ensemble(excel_path: str = DATASET_PATH, models: List[str] = MODEL_S
     model_tags = build_model_tags(models)
     categories_prompt = get_category_prompt()
 
-    detectors: Dict[str, LLMDetector] = {name: LLMDetector(tag) for name, tag in model_tags.items()}
+    detectors: Dict[str, LLMDetector] = {name: LLMDetector(tag, default_seed=seed) for name, tag in model_tags.items()}
     print(f"Models in ensemble ({len(detectors)}): {list(detectors.keys())}")
 
     # Per-sentence metric vectors
@@ -383,16 +384,35 @@ def perform_ensemble(excel_path: str = DATASET_PATH, models: List[str] = MODEL_S
             ps_rows.append({"model": "ensemble", "task": "subcategory", "y_true": gt_sub, "y_pred": ens_sub})
     df_ps = pd.DataFrame(ps_rows)
 
-    Path("results").mkdir(exist_ok=True)
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        df_summary.to_excel(writer, index=False, sheet_name="Metrics")
-        df_detailed.to_excel(writer, index=False, sheet_name="PerSentence")
-        for task in ("binary", "category", "subcategory"):
-            subset = df_ps[df_ps["task"] == task].drop(columns="task").reset_index(drop=True)
-            if not subset.empty:
-                subset.to_excel(writer, index=False, sheet_name=task.capitalize())
-    print(f"\nEnsemble results written to: {output_path}")
+    if output_path is not None:
+        Path("results").mkdir(exist_ok=True)
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            df_summary.to_excel(writer, index=False, sheet_name="Metrics")
+            df_detailed.to_excel(writer, index=False, sheet_name="PerSentence")
+            for task in ("binary", "category", "subcategory"):
+                subset = df_ps[df_ps["task"] == task].drop(columns="task").reset_index(drop=True)
+                if not subset.empty:
+                    subset.to_excel(writer, index=False, sheet_name=task.capitalize())
+        print(f"\nEnsemble results written to: {output_path}")
+
+    per_sample = {}
+    for task, suffix in (
+        ("binary", "binary"),
+        ("category", "category"),
+        ("subcategory", "subcategory"),
+    ):
+        subset = df_ps[df_ps["task"] == task] if not df_ps.empty else pd.DataFrame()
+        per_sample[f"y_true_{suffix}"] = subset["y_true"].tolist() if not subset.empty else []
+        per_sample[f"y_pred_{suffix}"] = subset["y_pred"].tolist() if not subset.empty else []
+
+    return {
+        "binary_metrics": bin_metrics,
+        "category_metrics": cat_metrics,
+        "subcategory_metrics": sub_metrics,
+        "timing": timing,
+        "per_sample": per_sample,
+    }
 
 
 if __name__ == "__main__":
-    perform_ensemble()
+    perform_ensemble(seed=SEED)

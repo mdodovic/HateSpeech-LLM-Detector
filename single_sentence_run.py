@@ -26,12 +26,12 @@ from src.utils import load_excel_dataset, build_model_tags, parse_category_and_s
 from src.evaluation import HateSpeechEvaluator
 
 
-def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict]) -> Dict:
+def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict], seed: Optional[int] = None) -> Dict:
     """Pokreni sve zadatke i evaluaciju za jedan model nad datim rekordima."""
 
     print(f"Uzoraka za obradu: {len(records)}")
     print("Inicijalizujem LLM detektor…")
-    detector = LLMDetector(model_tag)
+    detector = LLMDetector(model_tag, default_seed=seed)
     categories_prompt = get_category_prompt()
 
     # Priprema za evaluaciju
@@ -243,11 +243,11 @@ def two_prompts_evaluation_model_on_records(model_tag: str, records: List[Dict])
     }
 
 
-def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) -> Dict:
+def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict], seed: Optional[int] = None) -> Dict:
     """Evaluacija koristeći jedan kombinovani prompt (detekcija + kategorija)."""
     print(f"Uzoraka za obradu: {len(records)}")
     print("Inicijalizujem LLM detektor…")
-    detector = LLMDetector(model_tag)
+    detector = LLMDetector(model_tag, default_seed=seed)
     categories_prompt = get_category_prompt()
 
     y_true_bin: List[bool] = []
@@ -396,7 +396,7 @@ def one_prompt_evaluation_model_on_records(model_tag: str, records: List[Dict]) 
     }
 
 
-def run(excel_path: str, models: List[str] = [], debug: int = 0) -> None:
+def run(excel_path: str, models: List[str] = [], debug: int = 0, seed: Optional[int] = 42) -> None:
     """Pokreni evaluaciju za više LLM-ova i prikaži metrike."""
     print("Učitavam dataset iz Excel fajla…")
     records = load_excel_dataset(excel_path)
@@ -418,9 +418,9 @@ def run(excel_path: str, models: List[str] = [], debug: int = 0) -> None:
         print(f"Evaluacija za model: {model_name} (tag: {tag})")
         print("=" * 70)
         print("-- Dva prompta (detekcija + kategorija) --")
-        res_two = two_prompts_evaluation_model_on_records(tag, records)
+        res_two = two_prompts_evaluation_model_on_records(tag, records, seed=seed)
         print("-- Jedan prompt (detekcija + kategorija) --")
-        res_one = one_prompt_evaluation_model_on_records(tag, records)
+        res_one = one_prompt_evaluation_model_on_records(tag, records, seed=seed)
 
         # Collect per-sample data for bootstrap CI
         for prompt_type, res in [("two_prompts", res_two), ("one_prompt", res_one)]:
