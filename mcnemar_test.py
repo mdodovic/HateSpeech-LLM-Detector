@@ -33,10 +33,15 @@ classification.  This guarantees both models are compared on the same set.
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import re
+import sys
 
 import numpy as np
 import pandas as pd
 from scipy.stats import binomtest
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration
@@ -45,6 +50,7 @@ from scipy.stats import binomtest
 ZERO_SHOT_PATH     = Path("results/single_sentence_per_sample.xlsx")
 FEW_SHOT_PATH      = Path("results/single_sentence_few_shot_per_sample.xlsx")
 BERTIC_BINARY_PATH = Path("results/bertic/bertic_binary_results_per_sample.xlsx")
+FRENK_BINARY_PATH  = Path("results/bertic/bertic_frenk_binary_test_101.xlsx")
 GEMINI_GT_PATH     = Path("data/single_sentence_hate_speech_no_offenses.xlsx")
 GEMINI_LLM_PATH    = Path("data/single_sentence_llm_predictions.xlsx")
 
@@ -159,6 +165,21 @@ def load_bertic_binary(mode: str = "strict") -> Optional[Tuple[np.ndarray, np.nd
     if not BERTIC_BINARY_PATH.exists():
         return None
     df = pd.read_excel(BERTIC_BINARY_PATH, sheet_name="Predictions")
+    y_true = (df["GT_label"].str.lower().str.startswith("hate")).astype(int).values
+    col = "Strict_correct" if mode == "strict" else "BestCase_correct"
+    correct = df[col].astype(bool).values
+    y_pred = np.where(correct, y_true, 1 - y_true)
+    return y_true, y_pred
+
+
+def load_frenk_binary(mode: str = "strict") -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Load off-the-shelf FRENK-hate binary per-sample predictions.
+
+    mode: "strict" | "best_case"
+    """
+    if not FRENK_BINARY_PATH.exists():
+        return None
+    df = pd.read_excel(FRENK_BINARY_PATH, sheet_name="Predictions")
     y_true = (df["GT_label"].str.lower().str.startswith("hate")).astype(int).values
     col = "Strict_correct" if mode == "strict" else "BestCase_correct"
     correct = df[col].astype(bool).values
@@ -386,6 +407,7 @@ def main():
     print("\n── Zero-shot comparisons ────────────────────────────────────────────────────────────────")
 
     bertic_bin = load_bertic_binary(mode="strict")
+    frenk_bin  = load_frenk_binary(mode="strict")
     gemini_bin = load_gemini_binary()
 
     for task, sheet in [("binary", "Binary"), ("category", "Category"), ("subcategory", "Subcategory")]:
@@ -394,11 +416,15 @@ def main():
             zs_qwen  = load_llm(ZERO_SHOT_PATH, sheet, QWEN_TAG,  ZERO_SHOT_PROMPT)
             run_pair("Zero-shot LLaMA", zs_llama, "Zero-shot Qwen",       zs_qwen,    task, rows)
             run_pair("Zero-shot LLaMA", zs_llama, "BERTić",               bertic_bin, task, rows)
+            run_pair("Zero-shot LLaMA", zs_llama, "FRENK-hate",           frenk_bin,  task, rows)
             run_pair("Zero-shot LLaMA", zs_llama, "General-purpose LLM",  gemini_bin, task, rows)
             run_pair("Zero-shot Qwen",  zs_qwen,  "BERTić",               bertic_bin, task, rows)
+            run_pair("Zero-shot Qwen",  zs_qwen,  "FRENK-hate",           frenk_bin,  task, rows)
             run_pair("Zero-shot Qwen",  zs_qwen,  "General-purpose LLM",  gemini_bin, task, rows)
             # Full-sample cross-source: BERTić vs General-purpose LLM (both on same 548 sentences)
             run_pair("BERTić",          bertic_bin, "General-purpose LLM",  gemini_bin, task, rows)
+            run_pair("BERTić",          bertic_bin, "FRENK-hate",           frenk_bin,  task, rows)
+            run_pair("FRENK-hate",       frenk_bin,  "General-purpose LLM",  gemini_bin, task, rows)
         else:
             # Classification: align on ALL GT hate speech samples via binary sheet
             zs_llama_c = load_llm_class(ZERO_SHOT_PATH, sheet, LLAMA_TAG, ZERO_SHOT_PROMPT)
